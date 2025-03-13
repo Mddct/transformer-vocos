@@ -34,10 +34,10 @@ def get_config():
 
     # mel
     config.sample_rate = 24000
-    config.hop_size = 480 # sample_rate // hop_size = 50 for flow
+    config.hop_size = 480  # sample_rate // hop_size = 50 for flow
     # TODO(Mddct:) other info
 
-    # model 
+    # model
     # TODO(Mddct): change later when trainer is done
     config.output_size = 256
     config.attention_heads = 4
@@ -61,14 +61,14 @@ def get_config():
     config.use_sdpa = False
     config.layer_norm_type = "rms_norm"
     config.norm_eps = 1e-5
-    config.n_kv_head = None 
+    config.n_kv_head = None
     config.head_dim = None
     config.selfattention_layer_type = "selfattn"
     config.mlp_type = "position_wise_feed_forward"
     config.mlp_bias = True
     config.n_expert = 8
     config.n_expert_activated = 2
-    config.right_context = 2 # 2*6*20 =240ms
-    config.left_context = 15 # 300ms
- 
+    config.right_context = 2  # 2*6*20 =240ms
+    config.left_context = 15  # 300ms
+
     return config
