@@ -124,7 +124,7 @@ class MelSpectrogram(torch.nn.Module):
 
             # Padding should also be adjusted
             if paddings is not None:
-                paddings = F.pad(paddings, (pad_left, pad_right), value=1)
+                paddings = torch.nn.functional.pad(paddings, (pad_left, pad_right), value=1)
 
         # Compute Mel spectrogram
         mel = self.mel_spec(audio)  # (B, n_mels, T')
