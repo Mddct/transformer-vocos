@@ -8,11 +8,11 @@ from vocos.discriminators import (MultiPeriodDiscriminator,
                                   MultiResolutionDiscriminator)
 from vocos.loss import (DiscriminatorLoss, FeatureMatchingLoss, GeneratorLoss,
                         MelSpecReconstructionLoss)
-from vocos.models import ISTFTHead, Transformer
+from vocos.model import ISTFTHead, Transformer
 from vocos.utils import MelSpectrogram, get_cosine_schedule_with_warmup
 
 
-class VocosTrainer:
+class VocosStates:
 
     def __init__(
         self,

@@ -91,52 +91,29 @@ class ISTFT(torch.nn.Module):
         padding (str, optional): Type of padding. Options are "center" or "same". Defaults to "same".
     """
 
-    def __init__(self,
-                 n_fft: int,
-                 hop_length: int,
-                 win_length: int,
-                 padding: str = "same"):
+    def __init__(self, n_fft: int, hop_length: int, win_length: int):
         super().__init__()
-        if padding not in ["center", "same"]:
-            raise ValueError("Padding must be 'center' or 'same'.")
-        self.padding = padding
         self.n_fft = n_fft
         self.hop_length = hop_length
         self.win_length = win_length
         window = torch.hann_window(win_length)
         self.register_buffer("window", window)
 
-    def forward(self, spec: torch.Tensor,
-                paddding: torch.Tensor) -> torch.Tensor:
-        """
-        Compute the Inverse Short Time Fourier Transform (ISTFT) of a complex spectrogram.
+    def forward(self, spec: torch.Tensor, mask: torch.Tensor = None):
+        B_mask, T_mask = mask.shape
 
-        Args:
-            spec (Tensor): Input complex spectrogram of shape (B, N, T), where B is the batch size,
-                            N is the number of frequency bins, and T is the number of time frames.
-
-        Returns:
-            Tensor: Reconstructed time-domain signal of shape (B, L), where L is the length of the output signal.
-        """
-        if self.padding == "center":
-            # Fallback to pytorch native implementation
-            return torch.istft(spec,
-                               self.n_fft,
-                               self.hop_length,
-                               self.win_length,
-                               self.window,
-                               center=True)
-        elif self.padding == "same":
-            pad = (self.win_length - self.hop_length) // 2
-        else:
-            raise ValueError("Padding must be 'center' or 'same'.")
-
-        assert spec.dim() == 3, "Expected a 3D tensor as input"
+        pad = (self.win_length - self.hop_length) // 2
+        assert spec.dim() == 3
         B, N, T = spec.shape
+        if mask is not None:
+            assert mask.shape[0] == B and mask.shape[1] == T
 
         # Inverse FFT
         ifft = torch.fft.irfft(spec, self.n_fft, dim=1, norm="backward")
         ifft = ifft * self.window[None, :, None]
+        if mask is not None:
+            mask_exp = mask.unsqueeze(1)  # (B, 1, T)
+            ifft = ifft * mask_exp
 
         # Overlap and Add
         output_size = (T - 1) * self.hop_length + self.win_length
@@ -160,7 +137,18 @@ class ISTFT(torch.nn.Module):
         assert (window_envelope > 1e-11).all()
         y = y / window_envelope
 
-        return y
+        # mask: (B, T) -> (B, 1, T)
+        mask_exp = mask.unsqueeze(1).to(dtype=y.dtype)
+        ones_patch = torch.ones(
+            B, self.win_length, T, device=spec.device,
+            dtype=y.dtype) * mask_exp
+        folded_mask = torch.nn.functional.fold(
+            ones_patch,
+            output_size=(1, output_size),
+            kernel_size=(1, self.win_length),
+            stride=(1, self.hop_length)).squeeze()[pad:-pad]
+        effective_mask = (folded_mask > 0).to(dtype=torch.float32)
+        return y, effective_mask
 
 
 class ISTFTHead(torch.nn.Module):
@@ -180,12 +168,13 @@ class ISTFTHead(torch.nn.Module):
         self.config = config
         out_dim = config.n_fft + 2
         self.out = torch.nn.Linear(config.dim, out_dim)
-        self.istft = ISTFT(n_fft=config.n_fft,
-                           hop_length=config.hop_length,
-                           win_length=config.n_fft,
-                           padding=config.padding)
+        self.istft = ISTFT(
+            n_fft=config.n_fft,
+            hop_length=config.hop_length,
+            win_length=config.n_fft,
+        )
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
         """
         Forward pass of the ISTFTHead module.
 
@@ -199,16 +188,9 @@ class ISTFTHead(torch.nn.Module):
         x = self.out(x).transpose(1, 2)
         mag, p = x.chunk(2, dim=1)
         mag = torch.exp(mag)
-        mag = torch.clip(
-            mag, max=1e2)  # safeguard to prevent excessively large magnitudes
-        # wrapping happens here. These two lines produce real and imaginary value
+        mag = torch.clip(mag, max=1e2)
         x = torch.cos(p)
         y = torch.sin(p)
-        # recalculating phase here does not produce anything new
-        # only costs time
-        # phase = torch.atan2(y, x)
-        # S = mag * torch.exp(phase * 1j)
-        # better directly produce the complex value
         S = mag * (x + 1j * y)
-        audio = self.istft(S)
-        return audio
+        audio, mask = self.istft(S, mask)
+        return audio, mask
