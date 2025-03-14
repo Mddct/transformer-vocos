@@ -54,12 +54,6 @@ def frame_paddings(paddings: torch.Tensor, *, frame_size: int,
             f"hop_size {hop_size} must be smaller than frame_size {frame_size}."
         )
 
-    # Ensure padding is at least frame_size long
-    pad_len = (frame_size - hop_size) % frame_size  # Ensures full coverage
-    if pad_len > 0:
-        paddings = torch.nn.functional.pad(
-            paddings, (0, pad_len), value=1)  # Pad with 1s as in your example
-
     # Unfold to create overlapping frames
     paddings_frame = paddings.unfold(-1, frame_size, hop_size)
 
@@ -85,7 +79,7 @@ class MelSpectrogram(torch.nn.Module):
             n_fft=n_fft,
             hop_length=hop_length,
             n_mels=n_mels,
-            center=padding == "center",
+            center=False,
             power=1,
         )
 
@@ -101,43 +95,31 @@ class MelSpectrogram(torch.nn.Module):
             mel_features: (B, n_mels, T')
             out_paddings: (B, T') propagated padding information.
         """
-        # Ensure the input is at least 2D (batch, time)
-        if audio.dim() == 1:  # (T,) -> (1, 1, T)
-            audio = audio.unsqueeze(0).unsqueeze(0)
-            if paddings is not None:
-                paddings = paddings.unsqueeze(0)
-        elif audio.dim() == 2:  # (B, T) -> (B, 1, T)
-            audio = audio.unsqueeze(1)
-            if paddings is not None:
-                paddings = paddings.unsqueeze(1)  # (B, T) -> (B, 1, T)
-        elif audio.dim() == 3 and audio.shape[
-                1] > 1:  # (B, C, T) -> (B, 1, T) (take the mean)
-            audio = audio.mean(dim=1, keepdim=True)
-
         # Manual padding is needed when `padding="same"`
-        if self.padding == "same":
-            pad = (self.mel_spec.win_length
-                   or self.mel_spec.n_fft) - self.mel_spec.hop_length
+        pad = (self.mel_spec.win_length
+               or self.mel_spec.n_fft) - self.mel_spec.hop_length
+        if self.padding == "center":
             pad_left, pad_right = pad // 2, pad - pad // 2
             audio = torch.nn.functional.pad(audio, (pad_left, pad_right),
                                             mode="reflect")
-
             # Padding should also be adjusted
             if paddings is not None:
-                paddings = torch.nn.functional.pad(paddings, (pad_left, pad_right), value=1)
+                paddings = torch.nn.functional.pad(paddings,
+                                                   (pad_left, pad_right),
+                                                   value=1)
+        elif self.padding == "same":
+            audio = torch.nn.functional.pad(audio, (0, pad), mode="reflect")
+            # Padding should also be adjusted
+            if paddings is not None:
+                paddings = torch.nn.functional.pad(paddings, (0, pad), value=1)
 
         # Compute Mel spectrogram
         mel = self.mel_spec(audio)  # (B, n_mels, T')
 
         # Compute padding propagation
-        if paddings is not None:
-            paddings = paddings.squeeze(
-                1)  # Remove channel dimension (B, 1, T) -> (B, T)
-            out_paddings = frame_paddings(paddings,
-                                          frame_size=self.mel_spec.n_fft,
-                                          hop_size=self.mel_spec.hop_length)
-        else:
-            out_paddings = None
+        out_paddings = frame_paddings(paddings,
+                                      frame_size=self.mel_spec.n_fft,
+                                      hop_size=self.mel_spec.hop_length)
 
         # Avoid log(0) errors
         features = torch.log(torch.clip(mel, min=1e-6))
