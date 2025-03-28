@@ -4,8 +4,8 @@ import torch
 import torch.optim as optim
 from wenet.utils.mask import make_pad_mask
 
-from vocos.discriminators import (MultiPeriodDiscriminator,
-                                  MultiResolutionDiscriminator)
+from vocos.discriminators import (SequenceMultiPeriodDiscriminator,
+                                  SequenceMultiResolutionDiscriminator)
 from vocos.loss import (DiscriminatorLoss, FeatureMatchingLoss, GeneratorLoss,
                         MelSpecReconstructionLoss)
 from vocos.model import ISTFTHead, Transformer
@@ -23,8 +23,8 @@ class VocosStates:
         self.backbone = Transformer(config)
         self.head = ISTFTHead(config)
 
-        self.multiperioddisc = MultiPeriodDiscriminator()
-        self.multiresddisc = MultiResolutionDiscriminator()
+        self.multiperioddisc = SequenceMultiPeriodDiscriminator()
+        self.multiresddisc = SequenceMultiResolutionDiscriminator()
 
         self.disc_loss = DiscriminatorLoss()
         self.gen_loss = GeneratorLoss()
@@ -81,7 +81,7 @@ class VocosStates:
         x = x.transpose(1, 2)
         wav_g = self.head(x)
         wav_g = wav_g * (~padding)
-        return wav_g
+        return wav_g, ~padding
 
     def train_step(self, batch, device):
         wav, wav_lens = batch['wav'].to(device), batch['wav_lens'].to(device)
@@ -90,13 +90,21 @@ class VocosStates:
         if self.train_discriminator:
             self.opt_disc.zero_grad()
             with torch.no_grad():
-                wav_g = self(wav, wav_lens)
-            real_score_mp, gen_score_mp, _, _ = self.multiperioddisc(
-                wav, wav_g)
-            real_score_mrd, gen_score_mrd, _, _ = self.multiresddisc(
-                wav, wav_g)
-            loss_mp, _, _ = self.disc_loss(real_score_mp, gen_score_mp)
-            loss_mrd, _, _ = self.disc_loss(real_score_mrd, gen_score_mrd)
+                wav_g, wav_mask = self(wav, wav_lens)
+            self.multiperioddisc(wav, wav_g, wav_mask)
+            real_score_mp, real_score_mp_masks, _, _ = self.multiperioddisc(
+                wav, wav_mask)
+            gen_score_mp, _, _, _ = self.multiperioddisc(
+                wav_g.detach(), wav_mask)
+
+            real_score_mrd, real_score_mrd_masks = self.multiresddisc(
+                wav, wav_mask)
+            gen_score_mrd, _ = self.multiresddisc(wav_g.detach(), wav_mask)
+
+            loss_mp, _, _ = self.disc_loss(real_score_mp, gen_score_mp,
+                                           real_score_mp_masks)
+            loss_mrd, _, _ = self.disc_loss(real_score_mrd, gen_score_mrd,
+                                            real_score_mrd_masks)
             disc_loss = loss_mp + self.mrd_loss_coeff * loss_mrd
 
             disc_loss.backward()
@@ -105,15 +113,20 @@ class VocosStates:
             # self.writer.add_scalar("Loss/Discriminator", disc_loss.item(),
             #                        self.global_step)
 
-        wav_g = self(wav, wav_lens)
-        mel_loss = self.melspec_loss(wav_g, wav)
+        wav_g, wav_mask = self(wav, wav_lens)
+        mel_loss = self.melspec_loss(wav_g, wav, wav_mask)
         gen_loss = mel_loss * self.mel_loss_coeff
 
         if self.train_discriminator:
-            _, gen_score_mp, fmap_rs_mp, fmap_gs_mp = self.multiperioddisc(
-                wav, wav_g)
-            _, gen_score_mrd, fmap_rs_mrd, fmap_gs_mrd = self.multiresddisc(
-                wav, wav_g)
+            gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
+                wav_g, wav_mask)
+            real_score_mp, _, fmap_rs_mp, fmap_rs_mp, fmap_rs_mp_mask = self.multiperioddisc(
+                wav, wav_mask)
+
+            gen_score_mrd, gen_score_mrd_mask, fmap_gs_mrd, fmap_gs_mrd_mask = self.multiresddisc(
+                wav_g, wav_mask)
+            real_score_mrd, fmap_rs_mrd, fmap_rs_mrd, fmap_rs_mrd_mask = self.multiresddisc(
+                wav, wav_mask)
 
             loss_gen_mp, _ = self.gen_loss(gen_score_mp)
             loss_gen_mrd, _ = self.gen_loss(gen_score_mrd)
@@ -141,7 +154,7 @@ class VocosStates:
                                 (self.global_step / self.max_steps))))
 
     def fit(self, device):
-        for (i, batch) in enumerate(dataloader):
+        for (i, batch) in enumerate(self.dataloader):
             self.train_step(batch, device)
             if self.global_step >= self.max_steps:
                 print("Training complete.")

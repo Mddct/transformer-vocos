@@ -1,57 +1,43 @@
-# https://github.com/gemelo-ai/vocos/blob/main/vocos/discriminators.py
 from typing import List, Optional, Tuple
 
 import torch
-from einops import rearrange
+import torch.nn.functional as F
 from torch import nn
 from torch.nn import Conv2d
 from torch.nn.utils import weight_norm
 from torchaudio.transforms import Spectrogram
 
+from vocos.utils import frame_paddings
 
-class MultiPeriodDiscriminator(nn.Module):
-    """
-    Multi-Period Discriminator module adapted from https://github.com/jik876/hifi-gan.
-    Additionally, it allows incorporating conditional information with a learned embeddings table.
 
-    Args:
-        periods (tuple[int]): Tuple of periods for each discriminator.
-        num_embeddings (int, optional): Number of embeddings. None means non-conditional discriminator.
-            Defaults to None.
-    """
+class SequenceMultiPeriodDiscriminator(nn.Module):
 
-    def __init__(self,
-                 periods: Tuple[int, ...] = (2, 3, 5, 7, 11),
-                 num_embeddings: Optional[int] = None):
+    def __init__(self, periods: Tuple[int, ...] = (2, 3, 5, 7, 11)):
         super().__init__()
-        self.discriminators = nn.ModuleList([
-            DiscriminatorP(period=p, num_embeddings=num_embeddings)
-            for p in periods
-        ])
+        self.discriminators = nn.ModuleList(
+            [SequenceDiscriminatorP(period=p) for p in periods])
 
     def forward(
         self,
         y: torch.Tensor,
-        y_hat: torch.Tensor,
-        bandwidth_id: Optional[torch.Tensor] = None
+        mask: Optional[torch.Tensor] = None,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor],
                List[List[torch.Tensor]], List[List[torch.Tensor]]]:
-        y_d_rs = []
-        y_d_gs = []
-        fmap_rs = []
-        fmap_gs = []
+        logits = []
+        logits_masks = []
+        fmaps = []
+        fmaps_masks = []
         for d in self.discriminators:
-            y_d_r, fmap_r = d(x=y, cond_embedding_id=bandwidth_id)
-            y_d_g, fmap_g = d(x=y_hat, cond_embedding_id=bandwidth_id)
-            y_d_rs.append(y_d_r)
-            fmap_rs.append(fmap_r)
-            y_d_gs.append(y_d_g)
-            fmap_gs.append(fmap_g)
+            logit, logit_masks, fmap, fmap_masks = d(x=y, mask=mask)
+            logits.append(logit)
+            logits_masks.append(logit_masks)
+            fmaps.append(fmap)
+            fmaps_masks.append(fmap_masks)
 
-        return y_d_rs, y_d_gs, fmap_rs, fmap_gs
+        return logits, logits_masks, fmaps, fmaps_masks
 
 
-class DiscriminatorP(nn.Module):
+class SequenceDiscriminatorP(nn.Module):
 
     def __init__(
         self,
@@ -60,7 +46,6 @@ class DiscriminatorP(nn.Module):
         kernel_size: int = 5,
         stride: int = 3,
         lrelu_slope: float = 0.1,
-        num_embeddings: Optional[int] = None,
     ):
         super().__init__()
         self.period = period
@@ -86,100 +71,99 @@ class DiscriminatorP(nn.Module):
                        1024, (kernel_size, 1), (1, 1),
                        padding=(kernel_size // 2, 0))),
         ])
-        if num_embeddings is not None:
-            self.emb = torch.nn.Embedding(num_embeddings=num_embeddings,
-                                          embedding_dim=1024)
-            torch.nn.init.zeros_(self.emb.weight)
 
         self.conv_post = weight_norm(Conv2d(1024, 1, (3, 1), 1,
                                             padding=(1, 0)))
         self.lrelu_slope = lrelu_slope
 
+    def _apply_mask(self, x: torch.Tensor,
+                    current_mask: Optional[torch.Tensor]) -> torch.Tensor:
+        if current_mask is not None:
+            x = x * current_mask.float()
+        return x
+
+    def _update_mask(self, mask: Optional[torch.Tensor],
+                     layer: Conv2d) -> Optional[torch.Tensor]:
+        if mask is None:
+            return None
+        kernel_size = (layer.kernel_size[0], 1)
+        stride = (layer.stride[0], 1)
+        padding = (layer.padding[0], 0)
+        mask = F.max_pool2d(mask.float(), kernel_size, stride, padding)
+        return mask > 0.5
+
     def forward(
         self,
         x: torch.Tensor,
-        cond_embedding_id: Optional[torch.Tensor] = None
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor],
+               List[torch.Tensor]]:
         x = x.unsqueeze(1)
         fmap = []
-        # 1d to 2d
         b, c, t = x.shape
-        if t % self.period != 0:  # pad first
-            n_pad = self.period - (t % self.period)
-            x = torch.nn.functional.pad(x, (0, n_pad), "reflect")
-            t = t + n_pad
-        x = x.view(b, c, t // self.period, self.period)
 
-        for i, l in enumerate(self.convs):
-            x = l(x)
-            x = torch.nn.functional.leaky_relu(x, self.lrelu_slope)
+        # Handle padding and reshaping
+        if t % self.period != 0:
+            n_pad = self.period - (t % self.period)
+            x = F.pad(x, (0, n_pad), mode="reflect")
+            if mask is not None:
+                mask = F.pad(mask, (0, n_pad), value=False)
+            t += n_pad
+        x = x.view(b, c, t // self.period, self.period)
+        current_mask = mask.view(b, 1, t // self.period,
+                                 self.period) if mask is not None else None
+
+        masks = []
+        # Process through layers
+        for i, conv in enumerate(self.convs):
+            x = conv(x)
+            current_mask = self._update_mask(current_mask, conv)
+            x = F.leaky_relu(x, self.lrelu_slope)
+            x = self._apply_mask(x, current_mask)
             if i > 0:
                 fmap.append(x)
-        if cond_embedding_id is not None:
-            emb = self.emb(cond_embedding_id)
-            h = (emb.view(1, -1, 1, 1) * x).sum(dim=1, keepdims=True)
-        else:
-            h = 0
+                masks.append(current_mask)
+
         x = self.conv_post(x)
+        current_mask = self._update_mask(current_mask, self.conv_post)
+        x = self._apply_mask(x, current_mask)
         fmap.append(x)
-        x += h
+        masks.append(current_mask)
         x = torch.flatten(x, 1, -1)
+        x_mask = masks[-1].flatten(1, -1)
+        return x, x_mask, fmap, masks
 
-        return x, fmap
 
+class SequenceMultiResolutionDiscriminator(nn.Module):
 
-class MultiResolutionDiscriminator(nn.Module):
-
-    def __init__(
-        self,
-        fft_sizes: Tuple[int, ...] = (2048, 1024, 512),
-        num_embeddings: Optional[int] = None,
-    ):
-        """
-        Multi-Resolution Discriminator module adapted from https://github.com/descriptinc/descript-audio-codec.
-        Additionally, it allows incorporating conditional information with a learned embeddings table.
-
-        Args:
-            fft_sizes (tuple[int]): Tuple of window lengths for FFT. Defaults to (2048, 1024, 512).
-            num_embeddings (int, optional): Number of embeddings. None means non-conditional discriminator.
-                Defaults to None.
-        """
-
+    def __init__(self, fft_sizes: Tuple[int, ...] = (2048, 1024, 512)):
         super().__init__()
-        self.discriminators = nn.ModuleList([
-            DiscriminatorR(window_length=w, num_embeddings=num_embeddings)
-            for w in fft_sizes
-        ])
+        self.discriminators = nn.ModuleList(
+            [SequenceDiscriminatorR(window_length=w) for w in fft_sizes])
 
     def forward(
         self,
         y: torch.Tensor,
         y_hat: torch.Tensor,
-        bandwidth_id: torch.Tensor = None
+        mask: Optional[torch.Tensor] = None,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor],
-               List[List[torch.Tensor]], List[List[torch.Tensor]]]:
-        y_d_rs = []
-        y_d_gs = []
-        fmap_rs = []
-        fmap_gs = []
-
+               List[List[torch.Tensor]]]:
+        logits = []
+        fmaps = []
+        logit_masks = []
         for d in self.discriminators:
-            y_d_r, fmap_r = d(x=y, cond_embedding_id=bandwidth_id)
-            y_d_g, fmap_g = d(x=y_hat, cond_embedding_id=bandwidth_id)
-            y_d_rs.append(y_d_r)
-            fmap_rs.append(fmap_r)
-            y_d_gs.append(y_d_g)
-            fmap_gs.append(fmap_g)
-
-        return y_d_rs, y_d_gs, fmap_rs, fmap_gs
+            logit, logit_mask, fmap = d(x=y, mask=mask)
+            logit.append(logit)
+            fmaps.append(fmap)
+            logit_masks.append(logit_mask)
+        return logits, logit_masks, fmaps
 
 
-class DiscriminatorR(nn.Module):
+class SequenceDiscriminatorR(nn.Module):
 
     def __init__(
         self,
         window_length: int,
-        num_embeddings: Optional[int] = None,
         channels: int = 32,
         hop_factor: float = 0.25,
         bands: Tuple[Tuple[float, float],
@@ -192,13 +176,19 @@ class DiscriminatorR(nn.Module):
         self.spec_fn = Spectrogram(n_fft=window_length,
                                    hop_length=int(window_length * hop_factor),
                                    win_length=window_length,
-                                   power=None)
+                                   power=None,
+                                   center=False)
         n_fft = window_length // 2 + 1
-        bands = [(int(b[0] * n_fft), int(b[1] * n_fft)) for b in bands]
-        self.bands = bands
-        convs = lambda: nn.ModuleList([
-            weight_norm(nn.Conv2d(2, channels, (3, 9),
-                                  (1, 1), padding=(1, 4))),
+        self.bands = [(int(b[0] * n_fft), int(b[1] * n_fft)) for b in bands]
+        self.band_convs = nn.ModuleList(
+            [self._create_band_convs(channels) for _ in self.bands])
+        self.conv_post = weight_norm(
+            nn.Conv2d(channels, 1, (3, 3), (1, 1), padding=(1, 1)))
+
+    def _create_band_convs(self, channels: int) -> nn.ModuleList:
+        return nn.ModuleList([
+            weight_norm(nn.Conv2d(2, channels, (3, 9), (1, 1),
+                                  padding=(1, 4))),
             weight_norm(
                 nn.Conv2d(channels, channels, (3, 9), (1, 2), padding=(1, 4))),
             weight_norm(
@@ -208,48 +198,42 @@ class DiscriminatorR(nn.Module):
             weight_norm(
                 nn.Conv2d(channels, channels, (3, 3), (1, 1), padding=(1, 1))),
         ])
-        self.band_convs = nn.ModuleList(
-            [convs() for _ in range(len(self.bands))])
 
-        if num_embeddings is not None:
-            self.emb = torch.nn.Embedding(num_embeddings=num_embeddings,
-                                          embedding_dim=channels)
-            torch.nn.init.zeros_(self.emb.weight)
+    def forward(
+        self,
+        x: torch.Tensor,
+        mask: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
 
-        self.conv_post = weight_norm(
-            nn.Conv2d(channels, 1, (3, 3), (1, 1), padding=(1, 1)))
-
-    def spectrogram(self, x):
-        # Remove DC offset
-        x = x - x.mean(dim=-1, keepdims=True)
-        # Peak normalize the volume of input audio
+        x = x - x.mean(dim=-1, keepdim=True)
         x = 0.8 * x / (x.abs().max(dim=-1, keepdim=True)[0] + 1e-9)
-        x = self.spec_fn(x)
-        x = torch.view_as_real(x)
-        x = rearrange(x, "b f t c -> b c t f")
-        # Split into bands
-        x_bands = [x[..., b[0]:b[1]] for b in self.bands]
-        return x_bands
+        spec = self.spec_fn(x)
+        out_paddings = frame_paddings(~mask.unsqueeze(1),
+                                      frame_size=self.spec_fn.n_fft,
+                                      hop_size=self.spec_fn.hop_length)
+        mask = ~out_paddings
+        mask = mask.squeeze(1)
 
-    def forward(self, x: torch.Tensor, cond_embedding_id: torch.Tensor = None):
-        x_bands = self.spectrogram(x)
-        fmap = []
-        x = []
-        for band, stack in zip(x_bands, self.band_convs):
-            for i, layer in enumerate(stack):
-                band = layer(band)
-                band = torch.nn.functional.leaky_relu(band, 0.1)
+        spec = torch.view_as_real(spec)
+        spec = spec.transpose(1, 3)  # "b f t c -> b c t f"
+
+        x_bands = [spec[..., b[0]:b[1]] for b in self.bands]
+
+        fmaps = []
+
+        for band, conv_stack in zip(x_bands, self.band_convs):
+            x_band = band
+
+            for i, conv in enumerate(conv_stack):
+                x_band = conv(x_band)
+                x_band = F.leaky_relu(x_band, 0.1)
+                x_band = x_band * mask.unsqueeze(1).unsqueeze(-1)
                 if i > 0:
-                    fmap.append(band)
-            x.append(band)
-        x = torch.cat(x, dim=-1)
-        if cond_embedding_id is not None:
-            emb = self.emb(cond_embedding_id)
-            h = (emb.view(1, -1, 1, 1) * x).sum(dim=1, keepdims=True)
-        else:
-            h = 0
-        x = self.conv_post(x)
-        fmap.append(x)
-        x += h
+                    fmaps.append(x_band)
 
-        return x, fmap
+        x = torch.cat(fmaps, dim=-1)
+
+        x = self.conv_post(x)
+        fmaps.append(x)
+        x = torch.flatten(x, 1, -1)
+        return x, mask, fmaps
