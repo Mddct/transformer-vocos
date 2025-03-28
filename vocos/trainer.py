@@ -120,18 +120,20 @@ class VocosStates:
         if self.train_discriminator:
             gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
                 wav_g, wav_mask)
-            real_score_mp, _, fmap_rs_mp, fmap_rs_mp, fmap_rs_mp_mask = self.multiperioddisc(
+            real_score_mp, _, fmap_rs_mp, fmap_rs_mp, _ = self.multiperioddisc(
                 wav, wav_mask)
 
             gen_score_mrd, gen_score_mrd_mask, fmap_gs_mrd, fmap_gs_mrd_mask = self.multiresddisc(
                 wav_g, wav_mask)
-            real_score_mrd, fmap_rs_mrd, fmap_rs_mrd, fmap_rs_mrd_mask = self.multiresddisc(
+            real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(
                 wav, wav_mask)
 
-            loss_gen_mp, _ = self.gen_loss(gen_score_mp)
-            loss_gen_mrd, _ = self.gen_loss(gen_score_mrd)
-            loss_fm_mp = self.feat_matching_loss(fmap_rs_mp, fmap_gs_mp)
-            loss_fm_mrd = self.feat_matching_loss(fmap_rs_mrd, fmap_gs_mrd)
+            loss_gen_mp, _ = self.gen_loss(gen_score_mp, gen_score_mp_mask)
+            loss_gen_mrd, _ = self.gen_loss(gen_score_mrd, gen_score_mrd_mask)
+            loss_fm_mp = self.feat_matching_loss(fmap_rs_mp, fmap_gs_mp,
+                                                 fmap_gs_mp_mask)
+            loss_fm_mrd = self.feat_matching_loss(fmap_rs_mrd, fmap_gs_mrd,
+                                                  fmap_gs_mrd_mask)
 
             gen_loss += loss_gen_mp + self.mrd_loss_coeff * loss_gen_mrd + loss_fm_mp + self.mrd_loss_coeff * loss_fm_mrd
 
