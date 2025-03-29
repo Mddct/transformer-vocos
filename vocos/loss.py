@@ -1,8 +1,9 @@
 from typing import List, Tuple
 
 import torch
-import torchaudio
 from torch import nn
+
+from vocos.utils import MelSpectrogram
 
 
 def cal_mean_with_mask(input, mask):
@@ -33,9 +34,6 @@ def safe_log(x: torch.Tensor, clip_val: float = 1e-7) -> torch.Tensor:
     return torch.log(torch.clip(x, min=clip_val))
 
 
-from vocos.utils import MelSpectrogram
-
-
 class MelSpecReconstructionLoss(nn.Module):
     """
     L1 distance between the mel-scaled magnitude spectrograms of the ground truth sample and the generated sample
@@ -54,6 +52,7 @@ class MelSpecReconstructionLoss(nn.Module):
             n_fft=n_fft,
             hop_length=hop_length,
             n_mels=n_mels,
+            # padding='center',
         )
 
     def forward(self, y_hat, y, mask) -> torch.Tensor:
@@ -65,8 +64,8 @@ class MelSpecReconstructionLoss(nn.Module):
         Returns:
             Tensor: L1 loss between the mel-scaled magnitude spectrograms.
         """
-        mel_hat, mel_hat_padding = self.mel_spec(y_hat, ~mask)
-        mel, _ = self.mel_spec(y, ~mask)
+        mel_hat, mel_hat_padding = self.mel_spec(y_hat, ~mask.bool())
+        mel, _ = self.mel_spec(y, ~mask.bool())
         mel_mask = ~mel_hat_padding
 
         mel_hat = safe_log(mel_hat) * mel_mask.unsqueeze(1)
@@ -133,9 +132,9 @@ class DiscriminatorLoss(nn.Module):
                                                        the sub-discriminators for real outputs, and a list of
                                                        loss values for generated outputs.
         """
-        loss = torch.zeros(1,
-                           device=disc_real_outputs[0].device,
-                           dtype=disc_real_outputs[0].dtype)
+        loss = torch.tensor(0.0,
+                            device=disc_real_outputs[0].device,
+                            dtype=disc_real_outputs[0].dtype)
         r_losses = []
         g_losses = []
         for dr, dg, mask in zip(disc_real_outputs, disc_generated_outputs,
@@ -165,10 +164,10 @@ class FeatureMatchingLoss(nn.Module):
         Returns:
             Tensor: The calculated feature matching loss.
         """
-        loss = torch.zeros(1,
-                           device=fmap_r[0][0].device,
-                           dtype=fmap_r[0][0].dtype)
-        for dr, dg, masks in zip(fmap_r, fmap_g, masks):
-            for rl, gl, m in zip(dr, dg, masks):
+        loss = torch.tensor(0,
+                            device=fmap_r[0][0].device,
+                            dtype=fmap_r[0][0].dtype)
+        for dr, dg, mask in zip(fmap_r, fmap_g, masks):
+            for rl, gl, m in zip(dr, dg, mask):
                 loss += cal_mean_with_mask(torch.abs(rl - gl), m)
         return loss

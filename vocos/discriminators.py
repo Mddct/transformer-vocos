@@ -144,19 +144,20 @@ class SequenceMultiResolutionDiscriminator(nn.Module):
     def forward(
         self,
         y: torch.Tensor,
-        y_hat: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
+        mask: torch.Tensor,
     ) -> Tuple[List[torch.Tensor], List[torch.Tensor],
-               List[List[torch.Tensor]]]:
+               List[List[torch.Tensor]], List[torch.Tensor]]:
         logits = []
         fmaps = []
+        fmaps_mask = []
         logit_masks = []
         for d in self.discriminators:
-            logit, logit_mask, fmap = d(x=y, mask=mask)
-            logit.append(logit)
+            logit, logit_mask, fmap, fmap_mask = d(x=y, mask=mask)
+            logits.append(logit)
             fmaps.append(fmap)
+            fmaps_mask.append(fmap_mask)
             logit_masks.append(logit_mask)
-        return logits, logit_masks, fmaps
+        return logits, logit_masks, fmaps, fmaps_mask
 
 
 class SequenceDiscriminatorR(nn.Module):
@@ -202,17 +203,18 @@ class SequenceDiscriminatorR(nn.Module):
     def forward(
         self,
         x: torch.Tensor,
-        mask: Optional[torch.Tensor] = None,
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+        mask: torch.Tensor,
+    ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor], torch.Tensor]:
 
         x = x - x.mean(dim=-1, keepdim=True)
         x = 0.8 * x / (x.abs().max(dim=-1, keepdim=True)[0] + 1e-9)
         spec = self.spec_fn(x)
-        out_paddings = frame_paddings(~mask.unsqueeze(1),
+        out_paddings = frame_paddings(1 - mask.unsqueeze(1),
                                       frame_size=self.spec_fn.n_fft,
                                       hop_size=self.spec_fn.hop_length)
-        mask = ~out_paddings
+        mask = 1 - out_paddings
         mask = mask.squeeze(1)
+        fmaps_mask = mask.unsqueeze(1).unsqueeze(-1)
 
         spec = torch.view_as_real(spec)
         spec = spec.transpose(1, 3)  # "b f t c -> b c t f"
@@ -227,13 +229,14 @@ class SequenceDiscriminatorR(nn.Module):
             for i, conv in enumerate(conv_stack):
                 x_band = conv(x_band)
                 x_band = F.leaky_relu(x_band, 0.1)
-                x_band = x_band * mask.unsqueeze(1).unsqueeze(-1)
+                x_band = x_band * fmaps_mask
                 if i > 0:
                     fmaps.append(x_band)
 
         x = torch.cat(fmaps, dim=-1)
-
         x = self.conv_post(x)
         fmaps.append(x)
+        mask = mask.unsqueeze(1).unsqueeze(-1).repeat(1, 1, 1, x.shape[-1])
         x = torch.flatten(x, 1, -1)
-        return x, mask, fmaps
+        mask = torch.flatten(mask, 1, -1)
+        return x, mask, fmaps, fmaps_mask

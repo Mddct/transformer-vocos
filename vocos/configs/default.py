@@ -35,6 +35,14 @@ def get_config():
     # mel
     config.sample_rate = 24000
     config.hop_size = 480  # sample_rate // hop_size = 50 for flow
+    config.n_fft = 1920  # hop_size * 4
+    config.n_mels = 80  # 128 for future
+
+    # loss
+    config.mel_loss_coeff = 0.1
+    config.mrd_loss_coeff = 0.1
+    config.pretrain_mel_steps = 0
+    config.decay_mel_coeff = 0.1
     # TODO(Mddct:) other info
 
     # model
@@ -46,8 +54,8 @@ def get_config():
     config.dropout_rate = 0.1
     config.positional_dropout_rate = 0.1
     config.attention_dropout_rate = 0.0
-    config.input_layer = ""
-    config.pos_enc_layer_type = ""
+    config.input_layer = 'linear'
+    config.pos_enc_layer_type = "no_pos"
     config.normalize_before = True
     config.static_chunk_size = 0
     config.use_dynamic_chunk = False
