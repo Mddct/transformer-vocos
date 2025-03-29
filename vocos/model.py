@@ -1,16 +1,16 @@
+from typing import Optional, Tuple
+
 import torch
-from wenet.transformer.encoder import BaseEncoder
-from wenet.utils.class_utils import (WENET_ACTIVATION_CLASSES,
-                                     WENET_ATTENTION_CLASSES,
-                                     WENET_MLP_CLASSES)
+from wenet.transformer.encoder import TransformerEncoder
 from wenet.utils.common import mask_to_bias
-from wenet.utils.mask import causal_or_lookahead_mask, make_non_pad_mask
+from wenet.utils.mask import causal_or_lookahead_mask
 
 
-class Transformer(BaseEncoder):
+class Transformer(TransformerEncoder):
 
     def __init__(self, config):
         super().__init__(
+            input_size=config.n_mels,
             n_expert=config.n_expert,
             n_expert_activated=config.n_expert_activated,
             attention_heads=config.attention_heads,
@@ -42,12 +42,10 @@ class Transformer(BaseEncoder):
         )
         self.config = config
 
-    def forward(self, batch, device):
-        mels = batch['mels'].to(device)
-        mels_lens = batch['mels_lens'].to(device)
+    def forward(self, mels, masks):
 
-        mask = make_non_pad_mask(mels_lens)
-        xs, pos_emb, masks = self.embed(mels, mask)
+        masks = masks.unsqueeze(1)
+        xs, pos_emb, masks = self.embed(mels, masks)
         mask_pad = masks
         att_mask = causal_or_lookahead_mask(masks, self.config.right_context,
                                             self.config.left_context)
@@ -99,8 +97,7 @@ class ISTFT(torch.nn.Module):
         window = torch.hann_window(win_length)
         self.register_buffer("window", window)
 
-    def forward(self, spec: torch.Tensor, mask: torch.Tensor = None):
-        B_mask, T_mask = mask.shape
+    def forward(self, spec: torch.Tensor, mask: Optional[torch.Tensor] = None):
 
         pad = (self.win_length - self.hop_length) // 2
         assert spec.dim() == 3
@@ -123,7 +120,6 @@ class ISTFT(torch.nn.Module):
             kernel_size=(1, self.win_length),
             stride=(1, self.hop_length),
         )[:, 0, 0, pad:-pad]
-
         # Window envelope
         window_sq = self.window.square().expand(1, T, -1).transpose(1, 2)
         window_envelope = torch.nn.functional.fold(
@@ -131,7 +127,7 @@ class ISTFT(torch.nn.Module):
             output_size=(1, output_size),
             kernel_size=(1, self.win_length),
             stride=(1, self.hop_length),
-        ).squeeze()[pad:-pad]
+        )[:, 0, 0, pad:-pad]
 
         # Normalize
         assert (window_envelope > 1e-11).all()
@@ -146,7 +142,7 @@ class ISTFT(torch.nn.Module):
             ones_patch,
             output_size=(1, output_size),
             kernel_size=(1, self.win_length),
-            stride=(1, self.hop_length)).squeeze()[pad:-pad]
+            stride=(1, self.hop_length))[:, 0, 0, pad:-pad]
         effective_mask = (folded_mask > 0).to(dtype=torch.float32)
         return y, effective_mask
 
@@ -167,14 +163,15 @@ class ISTFTHead(torch.nn.Module):
         super().__init__()
         self.config = config
         out_dim = config.n_fft + 2
-        self.out = torch.nn.Linear(config.dim, out_dim)
+        self.out = torch.nn.Linear(config.output_size, out_dim)
         self.istft = ISTFT(
             n_fft=config.n_fft,
-            hop_length=config.hop_length,
+            hop_length=config.hop_size,
             win_length=config.n_fft,
         )
 
-    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+    def forward(self, x: torch.Tensor,
+                mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Forward pass of the ISTFTHead module.
 
@@ -194,5 +191,3 @@ class ISTFTHead(torch.nn.Module):
         S = mag * (x + 1j * y)
         audio, mask = self.istft(S, mask)
         return audio, mask
-
-
