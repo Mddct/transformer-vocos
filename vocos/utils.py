@@ -60,7 +60,7 @@ def frame_paddings(paddings: torch.Tensor, *, frame_size: int,
     paddings_frame = paddings.unfold(-1, frame_size, hop_size)
 
     # Compute max padding per frame
-    out_paddings = paddings_frame.min(dim=-1).values
+    out_paddings = paddings_frame.max(dim=-1).values
     return out_paddings
 
 
@@ -141,5 +141,3 @@ def init_distributed(configs):
           ', rank {}, world_size {}'.format(rank, world_size))
 
     return world_size, local_rank, rank
-
-

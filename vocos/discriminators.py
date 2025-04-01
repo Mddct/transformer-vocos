@@ -209,6 +209,7 @@ class SequenceDiscriminatorR(nn.Module):
         x = x - x.mean(dim=-1, keepdim=True)
         x = 0.8 * x / (x.abs().max(dim=-1, keepdim=True)[0] + 1e-9)
         spec = self.spec_fn(x)
+        mask = mask.float()
         out_paddings = frame_paddings(1 - mask.unsqueeze(1),
                                       frame_size=self.spec_fn.n_fft,
                                       hop_size=self.spec_fn.hop_length)
@@ -240,15 +241,3 @@ class SequenceDiscriminatorR(nn.Module):
         x = torch.flatten(x, 1, -1)
         mask = torch.flatten(mask, 1, -1)
         return x, mask, fmaps, fmaps_mask
-
-
-if __name__ == '__main__':
-    from wenet.utils.mask import make_non_pad_mask
-    model = SequenceDiscriminatorP(2)
-    print(model)
-
-    wavs = torch.rand(2, 24000)
-    wavs_lens = torch.tensor([24000, 23996])
-    wav_mask = make_non_pad_mask(wavs_lens)
-
-    print(model(wavs, wav_mask))
