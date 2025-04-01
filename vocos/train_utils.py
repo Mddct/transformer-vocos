@@ -14,9 +14,33 @@ from vocos.discriminators import (SequenceMultiPeriodDiscriminator,
                                   SequenceMultiResolutionDiscriminator)
 from vocos.loss import (MelSpecReconstructionLoss, compute_discriminator_loss,
                         compute_feature_matching_loss, compute_generatorl_oss)
-from vocos.model import VocosModel
+from vocos.model import Transformer, ISTFTHead
 from vocos.utils import (MelSpectrogram, get_cosine_schedule_with_warmup,
                          init_distributed)
+
+
+class VocosModel(torch.nn.Module):
+
+    def __init__(self, config):
+        self.feature_extractor = MelSpectrogram(
+            sample_rate=config.sample_rate,
+            n_fft=config.n_fft,
+            hop_length=config.hop_size,
+            n_mels=config.n_mels,
+            padding='center',
+        )
+        self.backbone = Transformer(config)
+        self.head = ISTFTHead(config)
+
+    def forward(self, wav: torch.Tensor, wav_lens: torch.Tensor):
+        padding = make_pad_mask(wav_lens)
+        mels, mels_padding = self.feature_extractor(wav, padding)
+        mels_masks = ~mels_padding
+        x, mask = self.backbone(mels.transpose(1, 2), mels_masks)
+        wav_g, wav_g_mask = self.head(x, mask.squeeze(1))
+        wav_g = wav_g * wav_g_mask
+
+        return wav_g, wav_g_mask
 
 
 class VocosState:
@@ -86,7 +110,7 @@ class VocosState:
         if self.train_discriminator:
             self.opt_disc.zero_grad()
             with torch.no_grad():
-                wav_g, wav_mask = self(wav, wav_lens)
+                wav_g, wavg_mask = self.model(wav, wav_lens)
                 wav = wav[:, :wav_g.shape[1]]
                 wav = wav * wavg_mask
 
@@ -117,7 +141,7 @@ class VocosState:
             self.writer.add_scalar("discriminator/multi_res_loss", loss_mrd,
                                    self.step)
 
-        wav_g, wav_mask = self(wav, wav_lens)
+        wav_g, wav_mask = self.model(wav, wav_lens)
 
         wav = wav[:, :wav_g.shape[1]]
         wav = wav * wavg_mask
@@ -170,8 +194,8 @@ class VocosState:
 
     def train(self):
         for (i, batch) in enumerate(self.dataloader):
-            self.train_step(batch, config.device)
-            if (self.step + 1) % config.save_interval == 0:
+            self.train_step(batch, self.config.device)
+            if (self.step + 1) % self.config.save_interval == 0:
                 self.save()
             if self.global_step >= self.max_steps:
                 print("Training complete.")

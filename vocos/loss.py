@@ -34,7 +34,7 @@ def safe_log(x: torch.Tensor, clip_val: float = 1e-7) -> torch.Tensor:
     return torch.log(torch.clip(x, min=clip_val))
 
 
-class computr_melspec_reconstruction_oss(nn.Module):
+class MelSpecReconstructionLoss(nn.Module):
     """
     L1 distance between the mel-scaled magnitude spectrograms of the ground truth sample and the generated sample
     """
@@ -76,39 +76,31 @@ class computr_melspec_reconstruction_oss(nn.Module):
         return loss
 
 
-class compute_generatorl_oss(nn.Module):
-    """
-    Generator Loss module with mask support for variable-length sequences.
-    Calculates the loss for the generator based on masked discriminator outputs.
-    """
-
-    def forward(
-        self,
+def compute_generatorl_oss(
         disc_outputs: List[torch.Tensor],
-        masks: List[torch.Tensor],
-    ) -> Tuple[torch.Tensor, List[torch.Tensor]]:
-        """
-        Args:
-            disc_outputs (List[Tensor]): List of discriminator outputs from sub-discriminators
-            masks (List[Tensor]): List of boolean masks corresponding to each discriminator output
+        masks: List[torch.Tensor]) -> Tuple[torch.Tensor, List[torch.Tensor]]:
+    """
+    Args:
+        disc_outputs (List[Tensor]): List of discriminator outputs from sub-discriminators
+        masks (List[Tensor]): List of boolean masks corresponding to each discriminator output
 
-        Returns:
-            Tuple[Tensor, List[Tensor]]: 
-                - Total generator loss (scalar tensor)
-                - List of per-discriminator losses
-        """
-        device = disc_outputs[0].device
-        dtype = disc_outputs[0].dtype
+    Returns:
+        Tuple[Tensor, List[Tensor]]: 
+        - Total generator loss (scalar tensor)
+         - List of per-discriminator losses
+    """
+    device = disc_outputs[0].device
+    dtype = disc_outputs[0].dtype
 
-        total_loss = torch.tensor(0.0, device=device, dtype=dtype)
-        gen_losses = []
+    total_loss = torch.tensor(0.0, device=device, dtype=dtype)
+    gen_losses = []
 
-        for dg, mask in zip(disc_outputs, masks):
-            loss_term = cal_mean_with_mask(1 - dg, mask)
-            gen_losses.append(loss_term.detach())
-            total_loss += loss_term
+    for dg, mask in zip(disc_outputs, masks):
+        loss_term = cal_mean_with_mask(1 - dg, mask)
+        gen_losses.append(loss_term.detach())
+        total_loss += loss_term
 
-        return total_loss, gen_losses
+    return total_loss, gen_losses
 
 
 def compute_discriminator_loss(
@@ -118,15 +110,14 @@ def compute_discriminator_loss(
     masks: List[torch.Tensor],
 ) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
     """
-        Args:
-            disc_real_outputs (List[Tensor]): List of discriminator outputs for real samples.
-            disc_generated_outputs (List[Tensor]): List of discriminator outputs for generated samples.
+    Args:
+        disc_real_outputs (List[Tensor]): List of discriminator outputs for real samples.
+        disc_generated_outputs (List[Tensor]): List of discriminator outputs for generated samples.
 
-        Returns:
-            Tuple[Tensor, List[Tensor], List[Tensor]]: A tuple containing the total loss, a list of loss values from
-                                                       the sub-discriminators for real outputs, and a list of
-                                                       loss values for generated outputs.
-        """
+     Returns:
+        Tuple[Tensor, List[Tensor], List[Tensor]]: A tuple containing the total loss, a list of loss values from
+        the sub-discriminators for real outputs, and a list of loss values for generated outputs.
+     """
     loss = torch.tensor(0.0,
                         device=disc_real_outputs[0].device,
                         dtype=disc_real_outputs[0].dtype)
