@@ -89,7 +89,7 @@ class SequenceDiscriminatorP(nn.Module):
         kernel_size = (layer.kernel_size[0], 1)
         stride = (layer.stride[0], 1)
         padding = (layer.padding[0], 0)
-        mask = F.max_pool2d(mask.float(), kernel_size, stride, padding)
+        mask = -F.max_pool2d(-mask.float(), kernel_size, stride, padding)
         return mask > 0.5
 
     def forward(
@@ -240,3 +240,15 @@ class SequenceDiscriminatorR(nn.Module):
         x = torch.flatten(x, 1, -1)
         mask = torch.flatten(mask, 1, -1)
         return x, mask, fmaps, fmaps_mask
+
+
+if __name__ == '__main__':
+    from wenet.utils.mask import make_non_pad_mask
+    model = SequenceDiscriminatorP(2)
+    print(model)
+
+    wavs = torch.rand(2, 24000)
+    wavs_lens = torch.tensor([24000, 23996])
+    wav_mask = make_non_pad_mask(wavs_lens)
+
+    print(model(wavs, wav_mask))
