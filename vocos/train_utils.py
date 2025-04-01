@@ -1,9 +1,5 @@
 import math
 import os
-import time
-from contextlib import nullcontext
-from dataclasses import dataclass
-from typing import Optional
 
 import torch
 import torch.optim as optim
@@ -14,7 +10,7 @@ from vocos.dataset import init_dataset_and_dataloader
 from vocos.discriminators import (SequenceMultiPeriodDiscriminator,
                                   SequenceMultiResolutionDiscriminator)
 from vocos.loss import (MelSpecReconstructionLoss, compute_discriminator_loss,
-                        compute_feature_matching_loss, compute_generatorl_oss)
+                        compute_feature_matching_loss, compute_generator_loss)
 from vocos.model import ISTFTHead, Transformer
 from vocos.utils import (MelSpectrogram, get_cosine_schedule_with_warmup,
                          init_distributed)
@@ -51,9 +47,10 @@ class VocosState:
         config,
     ):
 
-        init_distributed()
+        init_distributed(config)
         model = VocosTrainModel(config)
         model.cuda()
+        self.config = config
         self.model = torch.nn.parallel.DistributedDataParallel(model)
         self.device = config.device
 
@@ -89,7 +86,6 @@ class VocosState:
         # self.evaluate_periodicty = config.evaluate_periodicty
         # TODO: resume from optimizer step
         self.step = 0
-       
 
         # TODO: user clu async torch writer
         self.writer = SummaryWriter(config.tensorboard_dir)
@@ -102,8 +98,7 @@ class VocosState:
             betas=(0.8, 0.9),
         )
         self.opt_gen = optim.AdamW(
-            list(self.feature_extractor.parameters()) +
-            list(self.backbone.parameters()) + list(self.head.parameters()),
+            self.model.parameters(),
             lr=self.learning_rate,
             betas=(0.8, 0.9),
         )
@@ -126,19 +121,19 @@ class VocosState:
                 wav = wav * wavg_mask
 
             real_score_mp, real_score_mp_masks, _, _ = self.multiperioddisc(
-                wav, wav_mask)
+                wav, wavg_mask)
             gen_score_mp, _, _, _ = self.multiperioddisc(
-                wav_g.detach(), wav_mask)
+                wav_g.detach(), wavg_mask)
 
             real_score_mrd, real_score_mrd_masks, _, _ = self.multiresddisc(
-                wav, wav_mask)
+                wav, wavg_mask)
             gen_score_mrd, _, _, _ = self.multiresddisc(
-                wav_g.detach(), wav_mask)
+                wav_g.detach(), wavg_mask)
 
             loss_mp, _, _ = compute_discriminator_loss(real_score_mp,
                                                        gen_score_mp,
                                                        real_score_mp_masks)
-            loss_mrd, _, _ = compute_discriminator_loss(g
+            loss_mrd, _, _ = compute_discriminator_loss(
                 real_score_mrd, gen_score_mrd, real_score_mrd_masks)
             disc_loss = loss_mp + self.mrd_loss_coeff * loss_mrd
 
@@ -152,24 +147,24 @@ class VocosState:
             self.writer.add_scalar("discriminator/multi_res_loss", loss_mrd,
                                    self.step)
             log_str += f'step_{self.step}: loss_disc: {disc_loss} loss_mpd: {loss_mp} loss_mrd: {loss_mrd}'
-        wav_g, wav_mask = self.model(wav, wav_lens)
+        wav_g, wavg_mask = self.model(wav, wav_lens)
 
         wav = wav[:, :wav_g.shape[1]]
         wav = wav * wavg_mask
-        mel_loss = self.melspec_loss(wav_g, wav, wav_mask)
+        mel_loss = self.melspec_loss(wav_g, wav, wavg_mask)
         gen_loss = mel_loss * self.mel_loss_coeff
 
         gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
-            wav_g, wav_mask)
-        real_score_mp, _, fmap_rs_mp, _ = self.multiperioddisc(wav, wav_mask)
+            wav_g, wavg_mask)
+        real_score_mp, _, fmap_rs_mp, _ = self.multiperioddisc(wav, wavg_mask)
 
         gen_score_mrd, gen_score_mrd_mask, fmap_gs_mrd, fmaps_gs_mrd_mask = self.multiresddisc(
-            wav_g, wav_mask)
-        real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(wav, wav_mask)
+            wav_g, wavg_mask)
+        real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(wav, wavg_mask)
 
-        loss_gen_mp, _ = compute_generatorl_oss(gen_score_mp,
+        loss_gen_mp, _ = compute_generator_loss(gen_score_mp,
                                                 gen_score_mp_mask)
-        loss_gen_mrd, _ = compute_generatorl_oss(gen_score_mrd,
+        loss_gen_mrd, _ = compute_generator_loss(gen_score_mrd,
                                                  gen_score_mrd_mask)
         loss_fm_mp = compute_feature_matching_loss(fmap_rs_mp, fmap_gs_mp,
                                                    fmap_gs_mp_mask)
@@ -225,13 +220,13 @@ class VocosState:
         torch.save(model_state_dict, os.path.join('checkpoint_dir',
                                                   'model.pt'))
         mpd_state_dict = self.multiperioddisc.module.state_dict()
-        torch.save(model_state_dict, os.path.join('checkpoint_dir', 'mpd.pt'))
+        torch.save(mpd_state_dict, os.path.join('checkpoint_dir', 'mpd.pt'))
         mrd_state_dict = self.multiresddisc.module.state_dict()
-        torch.save(model_state_dict, os.path.join('checkpoint_dir', 'mrd.pt'))
+        torch.save(mrd_state_dict, os.path.join('checkpoint_dir', 'mrd.pt'))
 
         opt_disc_state_dict = self.opt_disc.state_dict()
-        torch.save(model_state_dict,
+        torch.save(opt_disc_state_dict,
                    os.path.join('checkpoint_dir', 'opt_disc.pt'))
         opt_gen_state_dict = self.opt_gen.state_dict()
-        torch.save(model_state_dict,
+        torch.save(opt_gen_state_dict,
                    os.path.join('checkpoint_dir', 'opt_gen.pt'))

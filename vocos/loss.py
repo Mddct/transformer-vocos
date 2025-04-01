@@ -104,7 +104,6 @@ def compute_generatorl_oss(
 
 
 def compute_discriminator_loss(
-    self,
     disc_real_outputs: List[torch.Tensor],
     disc_generated_outputs: List[torch.Tensor],
     masks: List[torch.Tensor],
