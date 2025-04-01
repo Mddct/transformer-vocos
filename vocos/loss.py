@@ -34,7 +34,7 @@ def safe_log(x: torch.Tensor, clip_val: float = 1e-7) -> torch.Tensor:
     return torch.log(torch.clip(x, min=clip_val))
 
 
-class MelSpecReconstructionLoss(nn.Module):
+class computr_melspec_reconstruction_oss(nn.Module):
     """
     L1 distance between the mel-scaled magnitude spectrograms of the ground truth sample and the generated sample
     """
@@ -76,7 +76,7 @@ class MelSpecReconstructionLoss(nn.Module):
         return loss
 
 
-class GeneratorLoss(nn.Module):
+class compute_generatorl_oss(nn.Module):
     """
     Generator Loss module with mask support for variable-length sequences.
     Calculates the loss for the generator based on masked discriminator outputs.
@@ -111,18 +111,13 @@ class GeneratorLoss(nn.Module):
         return total_loss, gen_losses
 
 
-class DiscriminatorLoss(nn.Module):
+def compute_discriminator_loss(
+    self,
+    disc_real_outputs: List[torch.Tensor],
+    disc_generated_outputs: List[torch.Tensor],
+    masks: List[torch.Tensor],
+) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
     """
-    Discriminator Loss module. Calculates the loss for the discriminator based on real and generated outputs.
-    """
-
-    def forward(
-        self,
-        disc_real_outputs: List[torch.Tensor],
-        disc_generated_outputs: List[torch.Tensor],
-        masks: List[torch.Tensor],
-    ) -> Tuple[torch.Tensor, List[torch.Tensor], List[torch.Tensor]]:
-        """
         Args:
             disc_real_outputs (List[Tensor]): List of discriminator outputs for real samples.
             disc_generated_outputs (List[Tensor]): List of discriminator outputs for generated samples.
@@ -132,42 +127,29 @@ class DiscriminatorLoss(nn.Module):
                                                        the sub-discriminators for real outputs, and a list of
                                                        loss values for generated outputs.
         """
-        loss = torch.tensor(0.0,
-                            device=disc_real_outputs[0].device,
-                            dtype=disc_real_outputs[0].dtype)
-        r_losses = []
-        g_losses = []
-        for dr, dg, mask in zip(disc_real_outputs, disc_generated_outputs,
-                                masks):
-            r_loss = cal_mean_with_mask(1 - dr, mask)
-            g_loss = cal_mean_with_mask(1 + dg, mask)
-            loss += r_loss + g_loss
-            r_losses.append(r_loss)
-            g_losses.append(g_loss)
+    loss = torch.tensor(0.0,
+                        device=disc_real_outputs[0].device,
+                        dtype=disc_real_outputs[0].dtype)
+    r_losses = []
+    g_losses = []
+    for dr, dg, mask in zip(disc_real_outputs, disc_generated_outputs, masks):
+        r_loss = cal_mean_with_mask(1 - dr, mask)
+        g_loss = cal_mean_with_mask(1 + dg, mask)
+        loss += r_loss + g_loss
+        r_losses.append(r_loss)
+        g_losses.append(g_loss)
 
-        return loss, r_losses, g_losses
+    return loss, r_losses, g_losses
 
 
-class FeatureMatchingLoss(nn.Module):
-    """
-    Feature Matching Loss module. Calculates the feature matching loss between feature maps of the sub-discriminators.
-    """
+def compute_feature_matching_loss(
+        fmap_r: List[List[torch.Tensor]], fmap_g: List[List[torch.Tensor]],
+        masks: List[List[torch.Tensor]]) -> torch.Tensor:
 
-    def forward(self, fmap_r: List[List[torch.Tensor]],
-                fmap_g: List[List[torch.Tensor]],
-                masks: List[List[torch.Tensor]]) -> torch.Tensor:
-        """
-        Args:
-            fmap_r (List[List[Tensor]]): List of feature maps from real samples.
-            fmap_g (List[List[Tensor]]): List of feature maps from generated samples.
-
-        Returns:
-            Tensor: The calculated feature matching loss.
-        """
-        loss = torch.tensor(0,
-                            device=fmap_r[0][0].device,
-                            dtype=fmap_r[0][0].dtype)
-        for dr, dg, mask in zip(fmap_r, fmap_g, masks):
-            for rl, gl, m in zip(dr, dg, mask):
-                loss += cal_mean_with_mask(torch.abs(rl - gl), m)
-        return loss
+    loss = torch.tensor(0,
+                        device=fmap_r[0][0].device,
+                        dtype=fmap_r[0][0].dtype)
+    for dr, dg, mask in zip(fmap_r, fmap_g, masks):
+        for rl, gl, m in zip(dr, dg, mask):
+            loss += cal_mean_with_mask(torch.abs(rl - gl), m)
+    return loss

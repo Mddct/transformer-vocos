@@ -5,6 +5,8 @@ from wenet.transformer.encoder import TransformerEncoder
 from wenet.utils.common import mask_to_bias
 from wenet.utils.mask import causal_or_lookahead_mask
 
+from vocos.utils import MelSpectrogram
+
 
 class Transformer(TransformerEncoder):
 
@@ -191,3 +193,27 @@ class ISTFTHead(torch.nn.Module):
         S = mag * (x + 1j * y)
         audio, mask = self.istft(S, mask)
         return audio, mask
+
+
+class VocosModel(torch.nn.Module):
+
+    def __init__(self, config):
+        self.feature_extractor = MelSpectrogram(
+            sample_rate=config.sample_rate,
+            n_fft=config.n_fft,
+            hop_length=config.hop_size,
+            n_mels=config.n_mels,
+            padding='center',
+        )
+        self.backbone = Transformer(config)
+        self.head = ISTFTHead(config)
+
+    def forward(self, wav: torch.Tensor, wav_lens: torch.Tensor):
+        padding = make_pad_mask(wav_lens)
+        mels, mels_padding = self.feature_extractor(wav, padding)
+        mels_masks = ~mels_padding
+        x, mask = self.backbone(mels.transpose(1, 2), mels_masks)
+        wav_g, wav_g_mask = self.head(x, mask.squeeze(1))
+        wav_g = wav_g * wav_g_mask
+
+        return wav_g, wav_g_mask
