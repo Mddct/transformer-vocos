@@ -7,19 +7,20 @@ from typing import Optional
 
 import torch
 import torch.optim as optim
-from tensorboard import summarywriter
+from torch.utils.tensorboard import SummaryWriter
 from wenet.utils.mask import make_pad_mask
 
+from vocos.dataset import init_dataset_and_dataloader
 from vocos.discriminators import (SequenceMultiPeriodDiscriminator,
                                   SequenceMultiResolutionDiscriminator)
 from vocos.loss import (MelSpecReconstructionLoss, compute_discriminator_loss,
                         compute_feature_matching_loss, compute_generatorl_oss)
-from vocos.model import Transformer, ISTFTHead
+from vocos.model import ISTFTHead, Transformer
 from vocos.utils import (MelSpectrogram, get_cosine_schedule_with_warmup,
                          init_distributed)
 
 
-class VocosModel(torch.nn.Module):
+class VocosTrainModel(torch.nn.Module):
 
     def __init__(self, config):
         self.feature_extractor = MelSpectrogram(
@@ -50,8 +51,8 @@ class VocosState:
         config,
     ):
 
-        init_distributed(config)
-        model = VocosModel(config)
+        init_distributed()
+        model = VocosTrainModel(config)
         model.cuda()
         self.model = torch.nn.parallel.DistributedDataParallel(model)
         self.device = config.device
@@ -73,16 +74,25 @@ class VocosState:
         self.pretrain_mel_steps = config.pretrain_mel_steps
         self.decay_mel_coeff = config.decay_mel_coeff
 
+        self.max_steps = config.max_train_steps
+        self.dataloader, _ = init_dataset_and_dataloader(
+            config.train_data,
+            config.per_device_batch_size,
+            config.num_workers,
+            config.prefetch,
+            True,
+            self.max_steps,
+            sample_rate=config.sample_rate,
+            seed=config.seed)
         # self.evaluate_utmos = config.evaluate_utmos
         # self.evaluate_pesq = config.evaluate_pesq
         # self.evaluate_periodicty = config.evaluate_periodicty
-
-        self.train_discriminator = True
-        self.global_step = 0
-        self.max_steps = config.max_train_steps
+        # TODO: resume from optimizer step
+        self.step = 0
+       
 
         # TODO: user clu async torch writer
-        self.writer = summarywriter(config.tensorboard_dir)
+        self.writer = SummaryWriter(config.tensorboard_dir)
 
         # Optimizers
         self.opt_disc = optim.AdamW(
@@ -105,8 +115,9 @@ class VocosState:
             self.opt_gen, self.warmup_steps, self.max_steps // 2)
 
     def train_step(self, batch, device):
-        wav, wav_lens = batch['wav'].to(device), batch['wav_lens'].to(device)
+        wav, wav_lens = batch['wavs'].to(device), batch['wavs_lens'].to(device)
         self.opt_gen.zero_grad()
+        log_str = ''
         if self.train_discriminator:
             self.opt_disc.zero_grad()
             with torch.no_grad():
@@ -127,7 +138,7 @@ class VocosState:
             loss_mp, _, _ = compute_discriminator_loss(real_score_mp,
                                                        gen_score_mp,
                                                        real_score_mp_masks)
-            loss_mrd, _, _ = compute_discriminator_loss(
+            loss_mrd, _, _ = compute_discriminator_loss(g
                 real_score_mrd, gen_score_mrd, real_score_mrd_masks)
             disc_loss = loss_mp + self.mrd_loss_coeff * loss_mrd
 
@@ -140,7 +151,7 @@ class VocosState:
                                    self.step)
             self.writer.add_scalar("discriminator/multi_res_loss", loss_mrd,
                                    self.step)
-
+            log_str += f'step_{self.step}: loss_disc: {disc_loss} loss_mpd: {loss_mp} loss_mrd: {loss_mrd}'
         wav_g, wav_mask = self.model(wav, wav_lens)
 
         wav = wav[:, :wav_g.shape[1]]
@@ -183,6 +194,8 @@ class VocosState:
         self.opt_gen.step()
         self.scheduler_gen.step()
 
+        log_str += f'loss_gen {gen_loss} mel_loss {mel_loss}'
+
         self.step += 1
         if self.step >= self.pretrain_mel_steps:
             self.train_discriminator = True
@@ -191,13 +204,15 @@ class VocosState:
             self.mel_loss_coeff = self.base_mel_coeff * max(
                 0.0, 0.5 * (1.0 + math.cos(math.pi *
                                            (self.step / self.max_steps))))
+        if (self.step + 1) % self.config.log_interval:
+            print(log_str)
 
     def train(self):
         for (i, batch) in enumerate(self.dataloader):
             self.train_step(batch, self.config.device)
-            if (self.step + 1) % self.config.save_interval == 0:
+            if (self.step + 1) % self.config.checkpoint_every_steps == 0:
                 self.save()
-            if self.global_step >= self.max_steps:
+            if self.step >= self.max_steps:
                 print("Training complete.")
                 return
 

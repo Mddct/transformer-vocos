@@ -11,6 +11,9 @@ _CONFIG = config_flags.DEFINE_config_file('config')
 def main(_):
     config = FLAGS.config
 
+    assert config.model_dir != ''
+    assert config.tensorboad_dir != ''
+    assert config.train_data != ''
     state = VocosState(config)
     state.train()
 

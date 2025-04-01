@@ -5,9 +5,13 @@ def get_config():
     """Get the default hyperparameter configuration."""
     config = ml_collections.ConfigDict()
 
-    # dataset
-    config.train_dataset_path = ''
-    config.eval_dataset_path = ''
+    config.train_data = ''
+    config.eval_data = ''
+    config.model_dir = ''
+    config.tensorboard_dir = ''
+    config.num_workers = 10
+    config.prefetch = 100
+    config.log_interval = 100
 
     # train
     # Per device batch size for training.
@@ -16,7 +20,7 @@ def get_config():
     config.eval_per_device_batch_size = 32
     config.max_train_steps = 500_000
     config.num_eval_steps = 2_000
-    config.checkpoint_every_steps = 10_000
+    config.checkpoint_every_steps = 2000
     # Base learning rate.
     config.learning_rate = 0.0016
     # Linear learning rate warmup.
@@ -28,7 +32,7 @@ def get_config():
     # Frequency of eval during training, e.g. every 1_000 steps.
     config.eval_every_steps = 1_000
     # Use bfloat16 mixed precision training instead of float32.
-    config.use_bfloat16 = True
+    config.use_bfloat16 = False
     # Integer for PRNG random seed.
     config.seed = 2025
 
@@ -43,6 +47,7 @@ def get_config():
     config.mrd_loss_coeff = 0.1
     config.pretrain_mel_steps = 0
     config.decay_mel_coeff = 0.1
+    config.train_discriminator = True
     # TODO(Mddct:) other info
 
     # model
