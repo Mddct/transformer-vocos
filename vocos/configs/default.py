@@ -12,6 +12,7 @@ def get_config():
     config.num_workers = 10
     config.prefetch = 100
     config.log_interval = 100
+    config.device = 'cuda'
 
     # train
     # Per device batch size for training.

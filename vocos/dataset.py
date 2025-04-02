@@ -55,7 +55,7 @@ def padding(data, pad_value=0):
     wavs_lens = [sample['wav'].shape[1] for sample in data]
 
     wavs = pad_sequence(wavs_lst, batch_first=True, padding_value=pad_value)
-    wvs_lens = torch.tensor(wavs_lens, dtype=torch.int64)
+    wavs_lens = torch.tensor(wavs_lens, dtype=torch.int64)
     return {
         'wavs': wavs,
         'wavs_lens': wavs_lens,

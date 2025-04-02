@@ -60,8 +60,8 @@ class VocosState:
         self.multiresddisc = torch.nn.parallel.DistributedDataParallel(
             SequenceMultiResolutionDiscriminator().cuda())
 
-        self.melspec_loss = torch.nn.parallel.DistributedDataParallel(
-            MelSpecReconstructionLoss(sample_rate=config.sample_rate).cuda())
+        self.melspec_loss = MelSpecReconstructionLoss(
+            sample_rate=config.sample_rate).cuda()
 
         self.sample_rate = config.sample_rate
         self.learning_rate = config.learning_rate
@@ -114,7 +114,7 @@ class VocosState:
         wav, wav_lens = batch['wavs'].to(device), batch['wavs_lens'].to(device)
         self.opt_gen.zero_grad()
         log_str = ''
-        if self.train_discriminator:
+        if self.config.train_discriminator:
             self.opt_disc.zero_grad()
             with torch.no_grad():
                 wav_g, wavg_mask = self.model(wav, wav_lens)
@@ -155,13 +155,14 @@ class VocosState:
         mel_loss = self.melspec_loss(wav_g, wav, wavg_mask)
         gen_loss = mel_loss * self.mel_loss_coeff
 
-        gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
-            wav_g, wavg_mask)
-        real_score_mp, _, fmap_rs_mp, _ = self.multiperioddisc(wav, wavg_mask)
+        with torch.no_grad():
+            gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
+                wav_g, wavg_mask)
+            real_score_mp, _, fmap_rs_mp, _ = self.multiperioddisc(wav, wavg_mask)
 
-        gen_score_mrd, gen_score_mrd_mask, fmap_gs_mrd, fmaps_gs_mrd_mask = self.multiresddisc(
-            wav_g, wavg_mask)
-        real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(wav, wavg_mask)
+            gen_score_mrd, gen_score_mrd_mask, fmap_gs_mrd, fmaps_gs_mrd_mask = self.multiresddisc(
+                wav_g, wavg_mask)
+            real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(wav, wavg_mask)
 
         loss_gen_mp, _ = compute_generator_loss(gen_score_mp,
                                                 gen_score_mp_mask)
@@ -218,16 +219,15 @@ class VocosState:
         os.makedirs(checkpoint_dir)
 
         model_state_dict = self.model.module.state_dict()
-        torch.save(model_state_dict, os.path.join('checkpoint_dir',
-                                                  'model.pt'))
+        torch.save(model_state_dict, os.path.join(checkpoint_dir, 'model.pt'))
         mpd_state_dict = self.multiperioddisc.module.state_dict()
-        torch.save(mpd_state_dict, os.path.join('checkpoint_dir', 'mpd.pt'))
+        torch.save(mpd_state_dict, os.path.join(checkpoint_dir, 'mpd.pt'))
         mrd_state_dict = self.multiresddisc.module.state_dict()
-        torch.save(mrd_state_dict, os.path.join('checkpoint_dir', 'mrd.pt'))
+        torch.save(mrd_state_dict, os.path.join(checkpoint_dir, 'mrd.pt'))
 
         opt_disc_state_dict = self.opt_disc.state_dict()
         torch.save(opt_disc_state_dict,
-                   os.path.join('checkpoint_dir', 'opt_disc.pt'))
+                   os.path.join(checkpoint_dir, 'opt_disc.pt'))
         opt_gen_state_dict = self.opt_gen.state_dict()
         torch.save(opt_gen_state_dict,
-                   os.path.join('checkpoint_dir', 'opt_gen.pt'))
+                   os.path.join(checkpoint_dir, 'opt_gen.pt'))

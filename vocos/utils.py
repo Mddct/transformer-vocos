@@ -137,6 +137,7 @@ def init_distributed(configs):
     rank = int(os.environ.get('RANK', 0))
 
     torch.cuda.set_device(local_rank)
+    dist.init_process_group('nccl')
     print('training on multiple gpus, this gpu {}'.format(local_rank) +
           ', rank {}, world_size {}'.format(rank, world_size))
 
