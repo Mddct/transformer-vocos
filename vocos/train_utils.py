@@ -158,11 +158,13 @@ class VocosState:
         with torch.no_grad():
             gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
                 wav_g, wavg_mask)
-            real_score_mp, _, fmap_rs_mp, _ = self.multiperioddisc(wav, wavg_mask)
+            real_score_mp, _, fmap_rs_mp, _ = self.multiperioddisc(
+                wav, wavg_mask)
 
             gen_score_mrd, gen_score_mrd_mask, fmap_gs_mrd, fmaps_gs_mrd_mask = self.multiresddisc(
                 wav_g, wavg_mask)
-            real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(wav, wavg_mask)
+            real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(
+                wav, wavg_mask)
 
         loss_gen_mp, _ = compute_generator_loss(gen_score_mp,
                                                 gen_score_mp_mask)
@@ -201,7 +203,7 @@ class VocosState:
             self.mel_loss_coeff = self.base_mel_coeff * max(
                 0.0, 0.5 * (1.0 + math.cos(math.pi *
                                            (self.step / self.max_steps))))
-        if self.step % self.config.log_interval:
+        if self.step % self.config.log_interval == 0:
             print(log_str)
 
     def train(self):
