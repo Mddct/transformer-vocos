@@ -152,7 +152,7 @@ class VocosState:
                                        loss_mp, self.step)
                 self.writer.add_scalar("discriminator/multi_res_loss",
                                        loss_mrd, self.step)
-            log_str += f'loss_disc: {disc_loss:.3f} loss_mpd: {loss_mp:.3f} loss_mrd: {loss_mrd:.3f}'
+            log_str += f'loss_disc: {disc_loss:>6.3f} loss_mpd: {loss_mp:>6.3f} loss_mrd: {loss_mrd:>6.3f}'
         wav_g, wavg_mask = self.model(wav, wav_lens)
 
         wav = wav[:, :wav_g.shape[1]]
@@ -196,17 +196,17 @@ class VocosState:
             self.writer.add_scalar("generator/feature_matching_mrd",
                                    loss_fm_mrd, self.step)
             self.writer.add_scalar("generator/total_loss", gen_loss, self.step)
-            self.writer.add_scalar("generator/mel_loss", mel_loss)
+            self.writer.add_scalar("generator/mel_loss", mel_loss, self.step)
 
-        log_str += f' loss_gen {gen_loss:.3f} mel_loss {mel_loss:.3f}'
+        log_str += f' loss_gen {gen_loss:>6.3f} mel_loss {mel_loss:>6.3f}'
         opt_disc_lrs = [group['lr'] for group in self.opt_disc.param_groups]
         opt_gen_lrs = [group['lr'] for group in self.opt_gen.param_groups]
         for i, lr in enumerate(opt_disc_lrs):
             self.writer.add_scalar('train/lr_disc_{}'.format(i), lr, self.step)
-            log_str += f' lr_disc_{i} {lr:.5f}'
+            log_str += f' lr_disc_{i} {lr:>6.5f}'
         for i, lr in enumerate(opt_gen_lrs):
             self.writer.add_scalar('train/lr_gen_{}'.format(i), lr, self.step)
-            log_str += f' lr_gen_{i} {lr:.5f}'
+            log_str += f' lr_gen_{i} {lr:>6.5f}'
 
         self.step += 1
         if self.step >= self.pretrain_mel_steps:
