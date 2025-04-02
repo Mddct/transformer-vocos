@@ -40,10 +40,11 @@ def resample(sample, resample_rate=16000):
     return sample
 
 
-def filter_by_length(sample, max_seconds=30):
+def filter_by_length(sample, max_seconds=30, min_seconds=0.5):
     wav = sample['wav']
     sr = sample['sample_rate']
-    if wav.shape[1] / sr <= max_seconds:
+    duration = wav.shape[1] / sr
+    if duration<= max_seconds and duration >= min_seconds:
         return True
     return False
 
