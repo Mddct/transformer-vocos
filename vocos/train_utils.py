@@ -15,6 +15,8 @@ from vocos.model import ISTFTHead, Transformer
 from vocos.utils import (MelSpectrogram, get_cosine_schedule_with_warmup,
                          init_distributed)
 
+from absl import logging
+
 
 class VocosTrainModel(torch.nn.Module):
 
@@ -48,7 +50,7 @@ class VocosState:
         config,
     ):
 
-        init_distributed(config)
+        _, _, self.rank = init_distributed(config)
         model = VocosTrainModel(config)
         model.cuda()
         self.config = config
@@ -113,7 +115,8 @@ class VocosState:
     def train_step(self, batch, device):
         wav, wav_lens = batch['wavs'].to(device), batch['wavs_lens'].to(device)
         self.opt_gen.zero_grad()
-        log_str = ''
+
+        log_str = f'[RANK {self.rank}] step_{self.step+1}: '
         if self.config.train_discriminator:
             self.opt_disc.zero_grad()
             with torch.no_grad():
@@ -147,7 +150,7 @@ class VocosState:
                                    self.step)
             self.writer.add_scalar("discriminator/multi_res_loss", loss_mrd,
                                    self.step)
-            log_str += f'step_{self.step}: loss_disc: {disc_loss} loss_mpd: {loss_mp} loss_mrd: {loss_mrd}'
+            log_str += f'loss_disc: {disc_loss:.3f} loss_mpd: {loss_mp:.3f} loss_mrd: {loss_mrd:.3f}'
         wav_g, wavg_mask = self.model(wav, wav_lens)
 
         wav = wav[:, :wav_g.shape[1]]
@@ -178,6 +181,10 @@ class VocosState:
 
         gen_loss += loss_gen_mp + self.mrd_loss_coeff * loss_gen_mrd + loss_fm_mp + self.mrd_loss_coeff * loss_fm_mrd
 
+        gen_loss.backward()
+        self.opt_gen.step()
+        self.scheduler_gen.step()
+
         self.writer.add_scalar("generator/multi_period_loss", loss_gen_mp,
                                self.step)
         self.writer.add_scalar("generator/multi_res_loss", loss_gen_mrd,
@@ -189,11 +196,15 @@ class VocosState:
         self.writer.add_scalar("generator/total_loss", gen_loss, self.step)
         self.writer.add_scalar("generator/mel_loss", mel_loss)
 
-        gen_loss.backward()
-        self.opt_gen.step()
-        self.scheduler_gen.step()
-
-        log_str += f'loss_gen {gen_loss} mel_loss {mel_loss}'
+        log_str += f'loss_gen {gen_loss:.3f} mel_loss {mel_loss:.3f}'
+        opt_disc_lrs = [group['lr'] for group in self.opt_disc.param_groups]
+        opt_gen_lrs = [group['lr'] for group in self.opt_gen.param_groups]
+        for i, lr in enumerate(opt_disc_lrs):
+            self.writer.add_scalar('train/lr_disc_{}'.format(i), lr, self.step)
+            log_str += f' lr_disc_{i} {lr}'
+        for i, lr in enumerate(opt_gen_lrs):
+            self.writer.add_scalar('train/lr_gen_{}'.format(i), lr, self.step)
+            log_str += f' lr_gen_{i} {lr}'
 
         self.step += 1
         if self.step >= self.pretrain_mel_steps:
@@ -204,7 +215,8 @@ class VocosState:
                 0.0, 0.5 * (1.0 + math.cos(math.pi *
                                            (self.step / self.max_steps))))
         if self.step % self.config.log_interval == 0:
-            print(log_str)
+
+            logging.info(log_str)
 
     def train(self):
         for (i, batch) in enumerate(self.dataloader):

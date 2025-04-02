@@ -44,7 +44,7 @@ def filter_by_length(sample, max_seconds=30, min_seconds=0.5):
     wav = sample['wav']
     sr = sample['sample_rate']
     duration = wav.shape[1] / sr
-    if duration<= max_seconds and duration >= min_seconds:
+    if duration <= max_seconds and duration >= min_seconds:
         return True
     return False
 
@@ -73,9 +73,10 @@ def init_dataset_and_dataloader(files,
                                 sample_rate=24000,
                                 seed=2025):
 
-    dataset = WenetRawDatasetSource(files, cycle=steps, shuffle=shuffle)
-    # TODO: stage2 shuffle
-
+    dataset = WenetRawDatasetSource(files,
+                                    cycle=steps,
+                                    shuffle=shuffle,
+                                    partition=True)
     dataset = dataset.map(decode_wav)
     dataset = dataset.filter(filter_by_length)
     dataset = dataset.map(partial(resample, resample_rate=sample_rate))
