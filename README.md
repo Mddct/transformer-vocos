@@ -29,3 +29,13 @@ torchrun --standalone --nnodes=1 --nproc_per_node=8 vocos/main.py -- \
         --config.tensorboard_dir=${tensorboard_dir} \
         --config.max_train_steps 1000000
 ```
+
+TODO:
+- [ ] training 
+  - [x] training works
+  - [ ] check training process
+- [ ] dev benchmark etc
+- [ ] infer
+   - [ ] 
+   - [ ] chunk by chunk or frame by frame
+   - [ ] onnx
