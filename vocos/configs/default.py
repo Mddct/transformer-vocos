@@ -44,10 +44,10 @@ def get_config():
     config.n_mels = 80  # 128 for future
 
     # loss
-    config.mel_loss_coeff = 0.1
+    config.mel_loss_coeff = 45
     config.mrd_loss_coeff = 0.1
     config.pretrain_mel_steps = 0
-    config.decay_mel_coeff = 0.1
+    config.decay_mel_coeff = False
     config.train_discriminator = True
     # TODO(Mddct:) other info
 
