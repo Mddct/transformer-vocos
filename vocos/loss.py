@@ -76,7 +76,7 @@ class MelSpecReconstructionLoss(nn.Module):
         return loss
 
 
-def compute_generatorl_oss(
+def compute_generator_loss(
         disc_outputs: List[torch.Tensor],
         masks: List[torch.Tensor]) -> Tuple[torch.Tensor, List[torch.Tensor]]:
     """

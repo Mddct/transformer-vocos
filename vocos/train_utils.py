@@ -19,6 +19,7 @@ from vocos.utils import (MelSpectrogram, get_cosine_schedule_with_warmup,
 class VocosTrainModel(torch.nn.Module):
 
     def __init__(self, config):
+        super().__init__()
         self.feature_extractor = MelSpectrogram(
             sample_rate=config.sample_rate,
             n_fft=config.n_fft,
@@ -72,7 +73,7 @@ class VocosState:
         self.decay_mel_coeff = config.decay_mel_coeff
 
         self.max_steps = config.max_train_steps
-        self.dataloader, _ = init_dataset_and_dataloader(
+        _, self.dataloader = init_dataset_and_dataloader(
             config.train_data,
             config.per_device_batch_size,
             config.num_workers,
@@ -199,7 +200,7 @@ class VocosState:
             self.mel_loss_coeff = self.base_mel_coeff * max(
                 0.0, 0.5 * (1.0 + math.cos(math.pi *
                                            (self.step / self.max_steps))))
-        if (self.step + 1) % self.config.log_interval:
+        if self.step % self.config.log_interval:
             print(log_str)
 
     def train(self):
