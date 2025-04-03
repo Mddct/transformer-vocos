@@ -48,7 +48,7 @@ def get_config():
     config.mrd_loss_coeff = 0.1
     config.pretrain_mel_steps = 0
     config.decay_mel_coeff = False
-    config.train_discriminator = True
+    config.disc_train_start = 0
     # TODO(Mddct:) other info
 
     # model

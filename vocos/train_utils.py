@@ -117,7 +117,7 @@ class VocosState:
         self.opt_gen.zero_grad()
 
         log_str = f'[RANK {self.rank}] step_{self.step+1}: '
-        if self.config.train_discriminator:
+        if self.config.disc_train_start < self.step + 1:
             self.opt_disc.zero_grad()
             with torch.no_grad():
                 wav_g, wavg_mask = self.model(wav, wav_lens)
@@ -152,65 +152,69 @@ class VocosState:
                                        loss_mp, self.step)
                 self.writer.add_scalar("discriminator/multi_res_loss",
                                        loss_mrd, self.step)
-            log_str += f'loss_disc: {disc_loss:>6.3f} loss_mpd: {loss_mp:>6.3f} loss_mrd: {loss_mrd:>6.3f}'
-        wav_g, wavg_mask = self.model(wav, wav_lens)
 
+            log_str += f'loss_disc: {disc_loss:>6.3f} loss_mpd: {loss_mp:>6.3f} loss_mrd: {loss_mrd:>6.3f}'
+
+        wav_g, wavg_mask = self.model(wav, wav_lens)
         wav = wav[:, :wav_g.shape[1]]
         wav = wav * wavg_mask
         mel_loss = self.melspec_loss(wav_g, wav, wavg_mask)
         gen_loss = mel_loss * self.mel_loss_coeff
 
-        with torch.no_grad():
-            gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
-                wav_g, wavg_mask)
+        if self.config.disc_train_start < self.step + 1:
+            with torch.no_grad():
+                gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
+                    wav_g, wavg_mask)
+                real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(
+                    wav, wavg_mask)
             real_score_mp, _, fmap_rs_mp, _ = self.multiperioddisc(
                 wav, wavg_mask)
-
             gen_score_mrd, gen_score_mrd_mask, fmap_gs_mrd, fmaps_gs_mrd_mask = self.multiresddisc(
                 wav_g, wavg_mask)
-            real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(
-                wav, wavg_mask)
 
-        loss_gen_mp, _ = compute_generator_loss(gen_score_mp,
-                                                gen_score_mp_mask)
-        loss_gen_mrd, _ = compute_generator_loss(gen_score_mrd,
-                                                 gen_score_mrd_mask)
-        loss_fm_mp = compute_feature_matching_loss(fmap_rs_mp, fmap_gs_mp,
-                                                   fmap_gs_mp_mask)
-        loss_fm_mrd = compute_feature_matching_loss(
-            fmap_rs_mrd, fmap_gs_mrd, [[fmaps_gs_mrd_mask[i]] * len(gs)
-                                       for i, gs in enumerate(fmap_gs_mrd)])
+            loss_gen_mp, _ = compute_generator_loss(gen_score_mp,
+                                                    gen_score_mp_mask)
+            loss_gen_mrd, _ = compute_generator_loss(gen_score_mrd,
+                                                     gen_score_mrd_mask)
+            loss_fm_mp = compute_feature_matching_loss(fmap_rs_mp, fmap_gs_mp,
+                                                       fmap_gs_mp_mask)
+            loss_fm_mrd = compute_feature_matching_loss(
+                fmap_rs_mrd, fmap_gs_mrd,
+                [[fmaps_gs_mrd_mask[i]] * len(gs)
+                 for i, gs in enumerate(fmap_gs_mrd)])
 
-        gen_loss += loss_gen_mp + self.mrd_loss_coeff * loss_gen_mrd + loss_fm_mp + self.mrd_loss_coeff * loss_fm_mrd
+            gen_loss = gen_loss + loss_gen_mp + self.mrd_loss_coeff * loss_gen_mrd + loss_fm_mp + self.mrd_loss_coeff * loss_fm_mrd
 
         gen_loss.backward()
         self.opt_gen.step()
         self.scheduler_gen.step()
         if self.rank == 0:
-            self.writer.add_scalar("generator/multi_period_loss", loss_gen_mp,
-                                   self.step)
-            self.writer.add_scalar("generator/multi_res_loss", loss_gen_mrd,
-                                   self.step)
-            self.writer.add_scalar("generator/feature_matching_mp", loss_fm_mp,
-                                   self.step)
-            self.writer.add_scalar("generator/feature_matching_mrd",
-                                   loss_fm_mrd, self.step)
-            self.writer.add_scalar("generator/total_loss", gen_loss, self.step)
+            if self.config.disc_train_start < self.step + 1:
+                self.writer.add_scalar("generator/multi_period_loss",
+                                       loss_gen_mp, self.step)
+                self.writer.add_scalar("generator/multi_res_loss",
+                                       loss_gen_mrd, self.step)
+                self.writer.add_scalar("generator/feature_matching_mp",
+                                       loss_fm_mp, self.step)
+                self.writer.add_scalar("generator/feature_matching_mrd",
+                                       loss_fm_mrd, self.step)
+                self.writer.add_scalar("generator/total_loss", gen_loss,
+                                       self.step)
             self.writer.add_scalar("generator/mel_loss", mel_loss, self.step)
 
         log_str += f' loss_gen {gen_loss:>6.3f} mel_loss {mel_loss:>6.3f}'
         opt_disc_lrs = [group['lr'] for group in self.opt_disc.param_groups]
         opt_gen_lrs = [group['lr'] for group in self.opt_gen.param_groups]
-        for i, lr in enumerate(opt_disc_lrs):
-            self.writer.add_scalar('train/lr_disc_{}'.format(i), lr, self.step)
-            log_str += f' lr_disc_{i} {lr:>6.5f}'
+        if self.config.disc_train_start < self.step + 1:
+            for i, lr in enumerate(opt_disc_lrs):
+                self.writer.add_scalar('train/lr_disc_{}'.format(i), lr,
+                                       self.step)
+                log_str += f' lr_disc_{i} {lr:>6.5f}'
         for i, lr in enumerate(opt_gen_lrs):
             self.writer.add_scalar('train/lr_gen_{}'.format(i), lr, self.step)
             log_str += f' lr_gen_{i} {lr:>6.5f}'
 
         self.step += 1
-        if self.step >= self.pretrain_mel_steps:
-            self.train_discriminator = True
 
         if self.decay_mel_coeff:
             self.mel_loss_coeff = self.base_mel_coeff * max(

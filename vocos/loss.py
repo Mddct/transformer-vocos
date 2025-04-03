@@ -98,9 +98,9 @@ def compute_generator_loss(
     for dg, mask in zip(disc_outputs, masks):
         loss_term = cal_mean_with_mask(1 - dg, mask)
         gen_losses.append(loss_term.detach())
-        total_loss += loss_term
+        total_loss = total_loss + loss_term
 
-    return total_loss, gen_losses
+    return total_loss / len(gen_losses), gen_losses
 
 
 def compute_discriminator_loss(
@@ -125,11 +125,11 @@ def compute_discriminator_loss(
     for dr, dg, mask in zip(disc_real_outputs, disc_generated_outputs, masks):
         r_loss = cal_mean_with_mask(1 - dr, mask)
         g_loss = cal_mean_with_mask(1 + dg, mask)
-        loss += r_loss + g_loss
+        loss = loss + r_loss + g_loss
         r_losses.append(r_loss)
         g_losses.append(g_loss)
 
-    return loss, r_losses, g_losses
+    return loss / len(r_losses), r_losses, g_losses
 
 
 def compute_feature_matching_loss(
@@ -139,7 +139,9 @@ def compute_feature_matching_loss(
     loss = torch.tensor(0,
                         device=fmap_r[0][0].device,
                         dtype=fmap_r[0][0].dtype)
+    nums = 0
     for dr, dg, mask in zip(fmap_r, fmap_g, masks):
         for rl, gl, m in zip(dr, dg, mask):
-            loss += cal_mean_with_mask(torch.abs(rl - gl), m)
-    return loss
+            loss = loss + cal_mean_with_mask(torch.abs(rl - gl), m)
+            nums += 1
+    return loss / nums
