@@ -159,12 +159,12 @@ class VocosState:
 
         if self.config.disc_train_start < self.step + 1:
             with torch.no_grad():
-                gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
-                    wav_g, wavg_mask)
                 real_score_mrd, _, fmap_rs_mrd, _ = self.multiresddisc(
                     wav, wavg_mask)
-            real_score_mp, _, fmap_rs_mp, _ = self.multiperioddisc(
-                wav, wavg_mask)
+                real_score_mp, _, fmap_rs_mp, _ = self.multiperioddisc(
+                    wav, wavg_mask)
+            gen_score_mp, gen_score_mp_mask, fmap_gs_mp, fmap_gs_mp_mask = self.multiperioddisc(
+                wav_g, wavg_mask)
             gen_score_mrd, gen_score_mrd_mask, fmap_gs_mrd, fmaps_gs_mrd_mask = self.multiresddisc(
                 wav_g, wavg_mask)
 
