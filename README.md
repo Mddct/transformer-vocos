@@ -34,6 +34,9 @@ TODO:
 - [ ] training 
   - [x] training works
   - [ ] check training process
+   - [x] generator
+   - [ ] disc
+  - [ ] transformer discriminators
 - [ ] dev benchmark etc
 - [ ] infer
    - [ ] offline
