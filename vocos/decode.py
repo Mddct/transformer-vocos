@@ -46,8 +46,6 @@ def main(_):
     config = FLAGS.config
     print(config)
 
-    from vocos.train_utils import VocosTrainModel as Vocos
-
     # TODO model.from_pretrained
     model = Vocos(config)
     ckpt = torch.load(FLAGS.checkpoint, map_location="cpu")
@@ -61,17 +59,15 @@ def main(_):
                                            orig_freq=sr,
                                            new_freq=config.sample_rate)
     y_lens = torch.tensor([y.shape[1]], dtype=torch.int64)
-    wav, mask = model(y, y_lens)
-    # y_padding = make_pad_mask(torch.tensor([y.shape[1]], dtype=torch.int64))
-    # mel_fn = MelSpectrogram(
-    #     sample_rate=config.sample_rate,
-    #     n_fft=config.n_fft,
-    #     hop_length=config.hop_size,
-    #     n_mels=config.n_mels,
-    # )
-    # mels, mels_paddings = mel_fn(y, y_padding, dtype=torch.int64)
-
-    # wav, wav_mask = model(mels.transpose(1, 2), (~mels_paddings).sum(-1))
+    y_padding = make_pad_mask(torch.tensor([y.shape[1]], dtype=torch.int64))
+    mel_fn = MelSpectrogram(
+        sample_rate=config.sample_rate,
+        n_fft=config.n_fft,
+        hop_length=config.hop_size,
+        n_mels=config.n_mels,
+    )
+    mels, mels_paddings = mel_fn(y, y_padding, dtype=torch.int64)
+    wav, wav_mask = model(mels.transpose(1, 2), (~mels_paddings).sum(-1))
     torchaudio.save("test.wav", wav, config.sample_rate, bits_per_sample=16)
 
 
