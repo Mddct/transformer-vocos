@@ -4,10 +4,12 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.nn import Conv2d
+
 try:
     from torch.nn.utils.parametrizations import weight_norm
 except:
     from torch.nn.utils import weight_norm
+
 from torchaudio.transforms import Spectrogram
 
 from vocos.utils import frame_paddings
