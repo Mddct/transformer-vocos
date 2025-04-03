@@ -62,7 +62,10 @@ class VocosState:
             SequenceMultiResolutionDiscriminator().cuda())
 
         self.melspec_loss = MelSpecReconstructionLoss(
-            sample_rate=config.sample_rate).cuda()
+            sample_rate=config.sample_rate,
+            n_fft=config.n_fft,
+            hop_length=config.hop_size,
+            n_mels=config.n_mels).cuda()
 
         self.sample_rate = config.sample_rate
         self.learning_rate = config.learning_rate
@@ -113,16 +116,13 @@ class VocosState:
 
     def train_step(self, batch, device):
         wav, wav_lens = batch['wavs'].to(device), batch['wavs_lens'].to(device)
-        self.opt_gen.zero_grad()
-
         log_str = f'[RANK {self.rank}] step_{self.step+1}: '
+
+        wav_g, wavg_mask = self.model(wav, wav_lens)
+        wav = wav[:, :wav_g.shape[1]]
+        wav = wav * wavg_mask
         if self.config.disc_train_start < self.step + 1:
             self.opt_disc.zero_grad()
-            with torch.no_grad():
-                wav_g, wavg_mask = self.model(wav, wav_lens)
-                wav = wav[:, :wav_g.shape[1]]
-                wav = wav * wavg_mask
-
             real_score_mp, real_score_mp_masks, _, _ = self.multiperioddisc(
                 wav, wavg_mask)
             gen_score_mp, _, _, _ = self.multiperioddisc(
@@ -154,9 +154,6 @@ class VocosState:
 
             log_str += f'loss_disc: {disc_loss:>6.3f} loss_mpd: {loss_mp:>6.3f} loss_mrd: {loss_mrd:>6.3f}'
 
-        wav_g, wavg_mask = self.model(wav, wav_lens)
-        wav = wav[:, :wav_g.shape[1]]
-        wav = wav * wavg_mask
         mel_loss = self.melspec_loss(wav_g, wav, wavg_mask)
         gen_loss = mel_loss * self.mel_loss_coeff
 
@@ -186,6 +183,7 @@ class VocosState:
 
         gen_loss.backward()
         self.opt_gen.step()
+        self.opt_gen.zero_grad()
         self.scheduler_gen.step()
         if self.rank == 0:
             if self.config.disc_train_start < self.step + 1:
@@ -202,13 +200,15 @@ class VocosState:
             self.writer.add_scalar("generator/mel_loss", mel_loss, self.step)
 
         log_str += f' loss_gen {gen_loss:>6.3f} mel_loss {mel_loss:>6.3f}'
-        opt_disc_lrs = [group['lr'] for group in self.opt_disc.param_groups]
-        opt_gen_lrs = [group['lr'] for group in self.opt_gen.param_groups]
         if self.config.disc_train_start < self.step + 1:
+            opt_disc_lrs = [
+                group['lr'] for group in self.opt_disc.param_groups
+            ]
             for i, lr in enumerate(opt_disc_lrs):
                 self.writer.add_scalar('train/lr_disc_{}'.format(i), lr,
                                        self.step)
                 log_str += f' lr_disc_{i} {lr:>6.5f}'
+        opt_gen_lrs = [group['lr'] for group in self.opt_gen.param_groups]
         for i, lr in enumerate(opt_gen_lrs):
             self.writer.add_scalar('train/lr_gen_{}'.format(i), lr, self.step)
             log_str += f' lr_gen_{i} {lr:>6.5f}'
@@ -220,11 +220,13 @@ class VocosState:
                 0.0, 0.5 * (1.0 + math.cos(math.pi *
                                            (self.step / self.max_steps))))
         if self.step % self.config.log_interval == 0:
-
             logging.info(log_str)
 
     def train(self):
         for (i, batch) in enumerate(self.dataloader):
+            self.model.train()
+            self.multiperioddisc.train()
+            self.multiresddisc.train()
             self.train_step(batch, self.config.device)
             if (self.step + 1) % self.config.checkpoint_every_steps == 0:
                 self.save()
@@ -235,7 +237,7 @@ class VocosState:
     def save(self):
         checkpoint_dir = os.path.join(self.config.model_dir,
                                       f'step_{self.step}')
-        os.makedirs(checkpoint_dir)
+        os.makedirs(checkpoint_dir, exist_ok=True)
 
         model_state_dict = self.model.module.state_dict()
         torch.save(model_state_dict, os.path.join(checkpoint_dir, 'model.pt'))
