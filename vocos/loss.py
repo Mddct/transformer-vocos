@@ -20,20 +20,6 @@ def cal_mean_with_mask(input, mask):
     return loss_term
 
 
-def safe_log(x: torch.Tensor, clip_val: float = 1e-7) -> torch.Tensor:
-    """
-    Computes the element-wise logarithm of the input tensor with clipping to avoid near-zero values.
-
-    Args:
-        x (Tensor): Input tensor.
-        clip_val (float, optional): Minimum value to clip the input tensor. Defaults to 1e-7.
-
-    Returns:
-        Tensor: Element-wise logarithm of the input tensor with clipping applied.
-    """
-    return torch.log(torch.clip(x, min=clip_val))
-
-
 class MelSpecReconstructionLoss(nn.Module):
     """
     L1 distance between the mel-scaled magnitude spectrograms of the ground truth sample and the generated sample
@@ -68,8 +54,8 @@ class MelSpecReconstructionLoss(nn.Module):
         mel, _ = self.mel_spec(y, ~mask.bool())
         mel_mask = ~mel_hat_padding
 
-        mel_hat = safe_log(mel_hat) * mel_mask.unsqueeze(1)
-        mel = safe_log(mel) * mel_mask.unsqueeze(1)
+        mel_hat = mel_hat * mel_mask.unsqueeze(1)
+        mel = mel * mel_mask.unsqueeze(1)
 
         loss = torch.nn.functional.l1_loss(mel, mel_hat)
 

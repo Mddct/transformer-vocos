@@ -3,6 +3,7 @@ import os
 
 import torch
 import torch.optim as optim
+from absl import logging
 from torch.utils.tensorboard import SummaryWriter
 from wenet.utils.mask import make_pad_mask
 
@@ -14,8 +15,6 @@ from vocos.loss import (MelSpecReconstructionLoss, compute_discriminator_loss,
 from vocos.model import ISTFTHead, Transformer
 from vocos.utils import (MelSpectrogram, get_cosine_schedule_with_warmup,
                          init_distributed)
-
-from absl import logging
 
 
 class VocosTrainModel(torch.nn.Module):
