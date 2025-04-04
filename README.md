@@ -39,5 +39,5 @@ TODO:
   - [ ] transformer discriminators
 - [ ] dev benchmark etc
 - [ ] infer
-   - [ ] offline
+   - [x] offline
    - [ ] chunk by chunk or frame by frame
