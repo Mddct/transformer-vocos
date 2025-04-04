@@ -180,6 +180,7 @@ class ISTFTHead(torch.nn.Module):
         Args:
             x (Tensor): Input tensor of shape (B, L, H), where B is the batch size,
                         L is the sequence length, and H denotes the model dimension.
+            mask (Tensor): (B,L)
 
         Returns:
             Tensor: Reconstructed time-domain audio signal of shape (B, T), where T is the length of the output signal.

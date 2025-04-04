@@ -37,7 +37,10 @@ TODO:
    - [x] generator
    - [x] disc
    - [ ] transformer discriminators
+   - [ ] resume
 - [ ] dev benchmark etc
 - [ ] infer
    - [x] offline
    - [ ] chunk by chunk or frame by frame
+   - [ ] onnx
+- [ ] exmple for: cosyvoice2 and transformer-vocos
