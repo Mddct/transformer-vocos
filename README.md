@@ -33,10 +33,10 @@ torchrun --standalone --nnodes=1 --nproc_per_node=8 vocos/main.py -- \
 TODO:
 - [ ] training 
   - [x] training works
-  - [ ] check training process
+  - [x] check training process
    - [x] generator
-   - [ ] disc
-  - [ ] transformer discriminators
+   - [x] disc
+   - [ ] transformer discriminators
 - [ ] dev benchmark etc
 - [ ] infer
    - [x] offline
