@@ -1,6 +1,5 @@
 import math
 import os
-from typing import Union
 
 import torch
 import torch.distributed as dist
@@ -272,7 +271,7 @@ class VocosState:
                           map_location='cpu',
                           mmap=True)
         model_state_dict.load_state_dict(ckpt['model'])
-        self.step = ckpt['step']
+        self.step = ckpt['step'] + 1  # train from new step
 
         mpd_state_dict = self.multiperioddisc.module.state_dict()
         ckpt = torch.load(os.path.join(checkpoint_dir, 'mpd.pt'),
