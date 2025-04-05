@@ -13,6 +13,7 @@ def get_config():
     config.prefetch = 100
     config.log_interval = 100
     config.device = 'cuda'
+    config.checkpoint = ''
 
     # train
     # Per device batch size for training.

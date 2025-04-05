@@ -1,7 +1,9 @@
 import math
 import os
+from typing import Union
 
 import torch
+import torch.distributed as dist
 import torch.optim as optim
 from absl import logging
 from torch.utils.tensorboard import SummaryWriter
@@ -213,42 +215,89 @@ class VocosState:
             self.writer.add_scalar('train/lr_gen_{}'.format(i), lr, self.step)
             log_str += f' lr_gen_{i} {lr:>6.5f}'
 
-        self.step += 1
-
         if self.decay_mel_coeff:
             self.mel_loss_coeff = self.base_mel_coeff * max(
-                0.0, 0.5 * (1.0 + math.cos(math.pi *
-                                           (self.step / self.max_steps))))
-        if self.step % self.config.log_interval == 0:
+                0.0, 0.5 *
+                (1.0 + math.cos(math.pi * ((self.step + 1) / self.max_steps))))
+        if (self.step + 1) % self.config.log_interval == 0:
             logging.info(log_str)
 
     def train(self):
-        for (i, batch) in enumerate(self.dataloader):
-            self.model.train()
-            self.multiperioddisc.train()
-            self.multiresddisc.train()
+        if self.config.checkpoint != '':
+            self.resume(self.config.checkpoint)
+        self.model.train()
+        self.multiperioddisc.train()
+        self.multiresddisc.train()
+        for batch in self.dataloader:
+            dist.barrier()
             self.train_step(batch, self.config.device)
             if (self.step + 1) % self.config.checkpoint_every_steps == 0:
                 self.save()
+            self.step += 1
             if self.step >= self.max_steps:
                 print("Training complete.")
                 return
 
     def save(self):
-        checkpoint_dir = os.path.join(self.config.model_dir,
-                                      f'step_{self.step}')
-        os.makedirs(checkpoint_dir, exist_ok=True)
+        if self.rank == 0:
+            checkpoint_dir = os.path.join(self.config.model_dir,
+                                          f'step_{self.step}')
+            os.makedirs(checkpoint_dir, exist_ok=True)
+
+            model_state_dict = self.model.module.state_dict()
+            meta = {
+                'model': model_state_dict,
+                'step': self.step,
+            }
+            torch.save(meta, os.path.join(checkpoint_dir, 'model.pt'))
+            mpd_state_dict = self.multiperioddisc.module.state_dict()
+            torch.save(mpd_state_dict, os.path.join(checkpoint_dir, 'mpd.pt'))
+            mrd_state_dict = self.multiresddisc.module.state_dict()
+            torch.save(mrd_state_dict, os.path.join(checkpoint_dir, 'mrd.pt'))
+
+            opt_disc_state_dict = self.opt_disc.state_dict()
+            torch.save(opt_disc_state_dict,
+                       os.path.join(checkpoint_dir, 'opt_disc.pt'))
+            opt_gen_state_dict = self.opt_gen.state_dict()
+            torch.save(opt_gen_state_dict,
+                       os.path.join(checkpoint_dir, 'opt_gen.pt'))
+            logging.info(
+                f'[RANK {self.rank}] Checkpoint: save to checkpoint {checkpoint_dir}'
+            )
+
+    def resume(self, checkpoint_dir: str):
 
         model_state_dict = self.model.module.state_dict()
-        torch.save(model_state_dict, os.path.join(checkpoint_dir, 'model.pt'))
+        ckpt = torch.load(os.path.join(checkpoint_dir, 'model.pt'),
+                          map_location='cpu',
+                          mmap=True)
+        model_state_dict.load_state_dict(ckpt['model'])
+        self.step = ckpt['step']
+
         mpd_state_dict = self.multiperioddisc.module.state_dict()
-        torch.save(mpd_state_dict, os.path.join(checkpoint_dir, 'mpd.pt'))
+        ckpt = torch.load(os.path.join(checkpoint_dir, 'mpd.pt'),
+                          map_location='cpu',
+                          mmap=True)
+        mpd_state_dict.load_state_dict(ckpt)
+
         mrd_state_dict = self.multiresddisc.module.state_dict()
-        torch.save(mrd_state_dict, os.path.join(checkpoint_dir, 'mrd.pt'))
+        ckpt = torch.load(os.path.join(checkpoint_dir, 'mrd.pt'),
+                          map_location='cpu',
+                          mmap=True)
+        mrd_state_dict.load_state_dict(ckpt)
 
         opt_disc_state_dict = self.opt_disc.state_dict()
-        torch.save(opt_disc_state_dict,
-                   os.path.join(checkpoint_dir, 'opt_disc.pt'))
+        ckpt = torch.load(os.path.join(checkpoint_dir, 'opt_disc.pt'),
+                          map_location='cpu',
+                          mmap=True)
+        opt_disc_state_dict.load_state_dict(ckpt)
+
         opt_gen_state_dict = self.opt_gen.state_dict()
-        torch.save(opt_gen_state_dict,
-                   os.path.join(checkpoint_dir, 'opt_gen.pt'))
+        ckpt = torch.load(os.path.join(checkpoint_dir, 'opt_gen.pt'),
+                          map_location='cpu',
+                          mmap=True)
+        opt_gen_state_dict.load_state_dict(ckpt)
+        logging.info(
+            f'[RANK {self.rank}] Checkpoint: load  checkpoint {checkpoint_dir}'
+        )
+        dist.barrier()
