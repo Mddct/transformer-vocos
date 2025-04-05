@@ -37,7 +37,7 @@ TODO:
    - [x] generator
    - [x] disc
    - [ ] transformer discriminators
-   - [ ] resume
+   - [x] resume
 - [ ] dev benchmark etc
 - [ ] infer
    - [x] offline
