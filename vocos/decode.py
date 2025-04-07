@@ -49,7 +49,7 @@ def main(_):
     # TODO model.from_pretrained
     model = Vocos(config)
     ckpt = torch.load(FLAGS.checkpoint, map_location="cpu")
-    model.load_state_dict(ckpt, strict=False)
+    model.load_state_dict(ckpt['model'], strict=False)
     model.eval()
 
     y, sr = torchaudio.load(FLAGS.wav)
