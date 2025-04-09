@@ -44,6 +44,10 @@ def get_config():
     config.n_fft = 1920  # hop_size * 4
     config.n_mels = 80  # 128 for future
     config.power = 2
+    config.fmin = 0
+    config.fmax = 8000,
+    config.norm = 'slaney'
+    config.mel_scale = 'slaney'
 
     # loss
     config.mel_loss_coeff = 45

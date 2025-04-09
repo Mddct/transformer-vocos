@@ -66,13 +66,19 @@ def frame_paddings(paddings: torch.Tensor, *, frame_size: int,
 
 class MelSpectrogram(torch.nn.Module):
 
-    def __init__(self,
-                 sample_rate=24000,
-                 n_fft=1024,
-                 hop_length=256,
-                 n_mels=100,
-                 padding="center",
-                 power=1):
+    def __init__(
+        self,
+        sample_rate=24000,
+        n_fft=1024,
+        hop_length=256,
+        n_mels=100,
+        padding="center",
+        power=1,
+        fmin=0,
+        fmax=8000,
+        norm="slaney",
+        mel_scale="slaney",
+    ):
         super().__init__()
         if padding not in ["center", "same"]:
             raise ValueError("Padding must be 'center' or 'same'.")
@@ -84,6 +90,10 @@ class MelSpectrogram(torch.nn.Module):
             n_mels=n_mels,
             center=False,
             power=power,
+            fmin=fmin,
+            fmax=fmax,
+            norm=norm,
+            mel_scale=mel_scale,
         )
 
     def forward(self, audio, paddings=None, **kwargs):
