@@ -90,8 +90,8 @@ class MelSpectrogram(torch.nn.Module):
             n_mels=n_mels,
             center=False,
             power=power,
-            fmin=fmin,
-            fmax=fmax,
+            f_min=fmin,
+            f_max=fmax,
             norm=norm,
             mel_scale=mel_scale,
         )
