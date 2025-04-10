@@ -6,14 +6,14 @@ from torch import nn
 from vocos.utils import MelSpectrogram
 
 
-def cal_mean_with_mask(input, mask):
+def cal_mean_with_mask(input: torch.Tensor, mask: torch.Tensor):
     if mask is None:
         loss_term = torch.mean(torch.clamp(input, min=0))
     else:
         valid_scores = torch.clamp(input, min=0)
         masked_scores = valid_scores * mask.float()
 
-        valid_elements = mask.sum().float()
+        valid_elements = mask.broadcast_to(input.shape).sum().float()
         valid_elements = torch.clamp(valid_elements, min=1e-6)
 
         loss_term = masked_scores.sum() / valid_elements
