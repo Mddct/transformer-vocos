@@ -43,7 +43,7 @@ def get_config():
     config.hop_size = 480  # sample_rate // hop_size = 50 for flow
     config.n_fft = 1920  # hop_size * 4
     config.n_mels = 80  # 128 for future
-    config.power = 2
+    config.power = 1
     config.fmin = 0
     config.fmax = None
     config.norm = 'slaney'
