@@ -45,16 +45,18 @@ def get_config():
     config.n_mels = 80  # 128 for future
     config.power = 2
     config.fmin = 0
-    config.fmax = 8000,
+    config.fmax = None
     config.norm = 'slaney'
     config.mel_scale = 'slaney'
+    config.padding = "center",
 
     # loss
     config.mel_loss_coeff = 45
-    config.mrd_loss_coeff = 1.0 # 0.1 for fintune
+    config.mrd_loss_coeff = 1.0  # 0.1 for fintune
     config.pretrain_mel_steps = 0
     config.decay_mel_coeff = False
     config.disc_train_start = 0
+
     # TODO(Mddct:) other info
 
     # model

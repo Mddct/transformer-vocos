@@ -27,8 +27,12 @@ class VocosTrainModel(torch.nn.Module):
             n_fft=config.n_fft,
             hop_length=config.hop_size,
             n_mels=config.n_mels,
-            padding='center',
+            padding=config.padding,
             power=config.power,
+            mel_scale=config.mel_scale,
+            fmin=config.fmin,
+            fmax=config.fmax,
+            norm=config.norm,
         )
         self.backbone = Transformer(config)
         self.head = ISTFTHead(config)
@@ -67,7 +71,14 @@ class VocosState:
             sample_rate=config.sample_rate,
             n_fft=config.n_fft,
             hop_length=config.hop_size,
-            n_mels=config.n_mels).cuda()
+            n_mels=config.n_mels,
+            power=config.power,
+            fmin=config.fmin,
+            fmax=config.fmax,
+            norm=config.norm,
+            padding=config.padding,
+            mel_scale=config.mel_scale,
+        ).cuda()
 
         self.sample_rate = config.sample_rate
         self.learning_rate = config.learning_rate

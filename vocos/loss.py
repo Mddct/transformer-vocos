@@ -31,6 +31,12 @@ class MelSpecReconstructionLoss(nn.Module):
         n_fft: int = 1024,
         hop_length: int = 256,
         n_mels: int = 100,
+        power=1,
+        padding="center",
+        fmin=0,
+        fmax=8000,
+        norm="slaney",
+        mel_scale="slaney",
     ):
         super().__init__()
         self.mel_spec = MelSpectrogram(
@@ -38,7 +44,12 @@ class MelSpecReconstructionLoss(nn.Module):
             n_fft=n_fft,
             hop_length=hop_length,
             n_mels=n_mels,
-            # padding='center',
+            power=power,
+            fmin=fmin,
+            fmax=fmax,
+            padding=padding,
+            norm=norm,
+            mel_scale=mel_scale,
         )
 
     def forward(self, y_hat, y, mask) -> torch.Tensor:
