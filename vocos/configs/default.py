@@ -22,7 +22,6 @@ def get_config():
     config.eval_per_device_batch_size = 32
     config.max_train_steps = 500_000
     config.num_eval_steps = 2_000
-    config.checkpoint_every_steps = 2000
     # Base learning rate.
     config.learning_rate = 0.0016
     # Linear learning rate warmup.
