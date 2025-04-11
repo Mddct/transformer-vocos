@@ -13,7 +13,7 @@ from vocos.discriminators import (SequenceMultiPeriodDiscriminator,
                                   SequenceMultiResolutionDiscriminator)
 from vocos.loss import (MelSpecReconstructionLoss, compute_discriminator_loss,
                         compute_feature_matching_loss, compute_generator_loss)
-from vocos.model import ISTFTHead
+from vocos.model import ISTFTHead, Transformer
 from vocos.utils import (MelSpectrogram, get_cosine_schedule_with_warmup,
                          get_model, init_distributed)
 
@@ -35,12 +35,21 @@ class VocosTrainModel(torch.nn.Module):
             norm=config.norm,
         )
         self.backbone = get_model(config)
+        self.projection = None
+        if not isinstance(self.backbone,
+                          Transformer) and config.output_size != config.n_mels:
+            self.projection = torch.nn.Linear(config.n_mels,
+                                              config.output_size)
         self.head = ISTFTHead(config)
 
     def forward(self, wav: torch.Tensor, wav_lens: torch.Tensor):
+
         padding = make_pad_mask(wav_lens)
         mels, mels_padding = self.feature_extractor(wav, padding)
         mels_masks = ~mels_padding
+
+        if self.projection is not None:
+            mels = self.projection(mels)
         x, mask = self.backbone(mels.transpose(1, 2), mels_masks)
         wav_g, wav_g_mask = self.head(x, mask.squeeze(1))
         wav_g = wav_g * wav_g_mask

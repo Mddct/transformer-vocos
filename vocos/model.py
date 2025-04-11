@@ -1,7 +1,6 @@
 from typing import Optional, Tuple
 
 import torch
-from efficient_conformer.model import Conformer as EfficientConformer
 from wenet.transformer.encoder import TransformerEncoder
 from wenet.utils.common import mask_to_bias
 from wenet.utils.mask import causal_or_lookahead_mask

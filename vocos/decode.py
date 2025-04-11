@@ -4,7 +4,7 @@ from absl import app, flags
 from ml_collections import config_flags
 from wenet.utils.mask import make_pad_mask
 
-from vocos.model import ISTFTHead
+from vocos.model import ISTFTHead, Transformer
 from vocos.utils import MelSpectrogram, get_model
 
 flags.DEFINE_string('wav', None, help='audio file', required=True)
@@ -19,6 +19,12 @@ class Vocos(torch.nn.Module):
 
     def __init__(self, config):
         super().__init__()
+        self.projection = None
+        if not isinstance(self.backbone,
+                          Transformer) and config.output_size != config.n_mels:
+            self.projection = torch.nn.Linear(config.n_mels,
+                                              config.output_size)
+
         self.backbone = get_model(config)
         self.head = ISTFTHead(config)
 
@@ -31,6 +37,9 @@ class Vocos(torch.nn.Module):
             wav: [B, T]
             wav_mask: [B,1,T]
         """
+
+        if self.projection is not None:
+            mels = self.projection(mels)
         mels_mask = ~make_pad_mask(mels_lens, mels.shape[1])
         x, mask = self.backbone(mels, mels_mask)
         wav, wav_mask = self.head(x, mask.squeeze(1))
