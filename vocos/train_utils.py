@@ -13,9 +13,9 @@ from vocos.discriminators import (SequenceMultiPeriodDiscriminator,
                                   SequenceMultiResolutionDiscriminator)
 from vocos.loss import (MelSpecReconstructionLoss, compute_discriminator_loss,
                         compute_feature_matching_loss, compute_generator_loss)
-from vocos.model import ISTFTHead, Transformer
+from vocos.model import ISTFTHead
 from vocos.utils import (MelSpectrogram, get_cosine_schedule_with_warmup,
-                         init_distributed)
+                         get_model, init_distributed)
 
 
 class VocosTrainModel(torch.nn.Module):
@@ -34,7 +34,7 @@ class VocosTrainModel(torch.nn.Module):
             fmax=config.fmax,
             norm=config.norm,
         )
-        self.backbone = Transformer(config)
+        self.backbone = get_model(config)
         self.head = ISTFTHead(config)
 
     def forward(self, wav: torch.Tensor, wav_lens: torch.Tensor):

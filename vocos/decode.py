@@ -2,10 +2,10 @@ import torch
 import torchaudio
 from absl import app, flags
 from ml_collections import config_flags
-from wenet.utils.mask import make_non_pad_mask, make_pad_mask
+from wenet.utils.mask import make_pad_mask
 
-from vocos.model import ISTFTHead, Transformer
-from vocos.utils import MelSpectrogram
+from vocos.model import ISTFTHead
+from vocos.utils import MelSpectrogram, get_model
 
 flags.DEFINE_string('wav', None, help='audio file', required=True)
 flags.DEFINE_string('checkpoint', None, help='model checkpoint', required=True)
@@ -19,7 +19,7 @@ class Vocos(torch.nn.Module):
 
     def __init__(self, config):
         super().__init__()
-        self.backbone = Transformer(config)
+        self.backbone = get_model(config)
         self.head = ISTFTHead(config)
 
     def forward(self, mels: torch.Tensor, mels_lens: torch.Tensor):

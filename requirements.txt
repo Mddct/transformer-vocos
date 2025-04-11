@@ -1,2 +1,3 @@
 git+https://github.com/wenet-e2e/wenet.git
+git+https://github.com/Mddct/google_efficient_conformer.git
 ml_collections

@@ -7,6 +7,8 @@ import torch.distributed as dist
 import torchaudio
 from torch.optim.lr_scheduler import LambdaLR
 
+from vocos.model import Transformer
+
 
 def _get_cosine_schedule_with_warmup_lr_lambda(current_step: int, *,
                                                num_warmup_steps: int,
@@ -153,3 +155,11 @@ def init_distributed(configs):
           ', rank {}, world_size {}'.format(rank, world_size))
 
     return world_size, local_rank, rank
+
+
+def get_model(config):
+    if hasattr(config, 'model_type'):
+        if config.model_type == 'conformer':
+            from efficient_conformer.model import Conformer
+            return Conformer(config)
+    return Transformer(config)

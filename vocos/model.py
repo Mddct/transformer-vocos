@@ -1,11 +1,10 @@
 from typing import Optional, Tuple
 
 import torch
+from efficient_conformer.model import Conformer as EfficientConformer
 from wenet.transformer.encoder import TransformerEncoder
 from wenet.utils.common import mask_to_bias
 from wenet.utils.mask import causal_or_lookahead_mask
-
-from vocos.utils import MelSpectrogram
 
 
 class Transformer(TransformerEncoder):
@@ -164,13 +163,6 @@ class ISTFTHead(torch.nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        out_dim = config.n_fft + 2
-        self.out = torch.nn.Linear(config.output_size, out_dim)
-        self.istft = ISTFT(
-            n_fft=config.n_fft,
-            hop_length=config.hop_size,
-            win_length=config.n_fft,
-        )
 
     def forward(self, x: torch.Tensor,
                 mask: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
