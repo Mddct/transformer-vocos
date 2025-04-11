@@ -278,36 +278,36 @@ class VocosState:
 
     def resume(self, checkpoint_dir: str):
 
-        model_state_dict = self.model.module.state_dict()
+        model = self.model.module
         ckpt = torch.load(os.path.join(checkpoint_dir, 'model.pt'),
                           map_location='cpu',
                           mmap=True)
-        model_state_dict.load_state_dict(ckpt['model'])
+        model.load_state_dict(ckpt['model'])
         self.step = ckpt['step'] + 1  # train from new step
 
-        mpd_state_dict = self.multiperioddisc.module.state_dict()
+        mpd = self.multiperioddisc.module
         ckpt = torch.load(os.path.join(checkpoint_dir, 'mpd.pt'),
                           map_location='cpu',
                           mmap=True)
-        mpd_state_dict.load_state_dict(ckpt)
+        mpd.load_state_dict(ckpt)
 
-        mrd_state_dict = self.multiresddisc.module.state_dict()
+        mrd = self.multiresddisc.module
         ckpt = torch.load(os.path.join(checkpoint_dir, 'mrd.pt'),
                           map_location='cpu',
                           mmap=True)
-        mrd_state_dict.load_state_dict(ckpt)
+        mrd.load_state_dict(ckpt)
 
-        opt_disc_state_dict = self.opt_disc.state_dict()
+        opt_disc = self.opt_disc
         ckpt = torch.load(os.path.join(checkpoint_dir, 'opt_disc.pt'),
                           map_location='cpu',
                           mmap=True)
-        opt_disc_state_dict.load_state_dict(ckpt)
+        opt_disc.load_state_dict(ckpt)
 
-        opt_gen_state_dict = self.opt_gen.state_dict()
+        opt_gen = self.opt_gen
         ckpt = torch.load(os.path.join(checkpoint_dir, 'opt_gen.pt'),
                           map_location='cpu',
                           mmap=True)
-        opt_gen_state_dict.load_state_dict(ckpt)
+        opt_gen.load_state_dict(ckpt)
         logging.info(
             f'[RANK {self.rank}] Checkpoint: load  checkpoint {checkpoint_dir}'
         )
