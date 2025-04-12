@@ -77,7 +77,7 @@ class DynamicBatchWindow:
 
     def __call__(self, sample, buffer_size):
         assert isinstance(sample, dict)
-        assert 'feat' in sample
+        assert 'wav' in sample
         assert isinstance(sample['wav'], torch.Tensor)
         new_sample_frames = sample['wav'].size(0)
         self.longest_frames = max(self.longest_frames, new_sample_frames)
