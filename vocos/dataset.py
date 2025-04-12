@@ -79,7 +79,7 @@ class DynamicBatchWindow:
         assert isinstance(sample, dict)
         assert 'wav' in sample
         assert isinstance(sample['wav'], torch.Tensor)
-        new_sample_frames = sample['wav'].size(0)
+        new_sample_frames = sample['wav'].size(1)
         self.longest_frames = max(self.longest_frames, new_sample_frames)
         frames_after_padding = self.longest_frames * (buffer_size + 1)
         if frames_after_padding > self.max_frames_in_batch:
