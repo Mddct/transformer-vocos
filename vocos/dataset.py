@@ -49,6 +49,12 @@ def filter_by_length(sample, max_seconds=30, min_seconds=0.5):
     return False
 
 
+def sort_by_feats(sample):
+    assert 'wav' in sample
+    assert isinstance(sample['wav'], torch.Tensor)
+    return sample['wav'].size(1)
+
+
 def padding(data, pad_value=0):
     samples = data
 
@@ -63,6 +69,25 @@ def padding(data, pad_value=0):
     }
 
 
+class DynamicBatchWindow:
+
+    def __init__(self, max_frames_in_batch=12000):
+        self.longest_frames = 0
+        self.max_frames_in_batch = max_frames_in_batch
+
+    def __call__(self, sample, buffer_size):
+        assert isinstance(sample, dict)
+        assert 'feat' in sample
+        assert isinstance(sample['feat'], torch.Tensor)
+        new_sample_frames = sample['feat'].size(0)
+        self.longest_frames = max(self.longest_frames, new_sample_frames)
+        frames_after_padding = self.longest_frames * (buffer_size + 1)
+        if frames_after_padding > self.max_frames_in_batch:
+            self.longest_frames = new_sample_frames
+            return True
+        return False
+
+
 def init_dataset_and_dataloader(files,
                                 batch_size,
                                 num_workers,
@@ -71,7 +96,10 @@ def init_dataset_and_dataloader(files,
                                 steps,
                                 drop_last=False,
                                 sample_rate=24000,
-                                seed=2025):
+                                seed=2025, 
+                                sort_buffer_size=1024,
+                                batch_type='static',
+                                split='train'):
 
     dataset = WenetRawDatasetSource(files,
                                     cycle=steps,
@@ -79,11 +107,22 @@ def init_dataset_and_dataloader(files,
                                     partition=True)
     dataset = dataset.map(decode_wav)
     dataset = dataset.filter(filter_by_length)
+    if split == 'train':
+        dataset = dataset.sort(buffer_size=sort_buffer_size,
+                              key_func=sort_by_feats)
     dataset = dataset.map(partial(resample, resample_rate=sample_rate))
-    dataset = dataset.batch(batch_size,
-                            wrapper_class=partial(padding, pad_value=0.0),
-                            drop_last=drop_last)
-
+    assert batch_type in ['static', 'dynamic']
+    if batch_type == 'static':
+        dataset = dataset.batch(batch_size,
+                                wrapper_class=partial(padding, pad_value=0.0),
+                                drop_last=drop_last)
+    else:
+        max_frames_in_batch = batch_size
+        dataset = dataset.dynamic_batch(
+            DynamicBatchWindow(max_frames_in_batch),
+            wrapper_class=partial(padding, pad_value=0.0),
+            drop_last=drop_last,
+        )
     generator = torch.Generator()
     generator.manual_seed(seed)
 
