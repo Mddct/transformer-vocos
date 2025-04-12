@@ -5,6 +5,7 @@ def get_config():
     """Get the default hyperparameter configuration."""
     config = ml_collections.ConfigDict()
 
+    config.model_type = 'conformer'
     config.train_data = ''
     config.eval_data = ''
     config.model_dir = ''
