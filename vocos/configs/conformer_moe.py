@@ -88,7 +88,8 @@ def get_config():
 
     # total blocks: first_n_layers + num_blocks
     config.first_n_layers = 3
-    config.num_blocks = 6
+    config.causal_blocks = 3
+    config.noncausal_blocks = 6
     config.causal = True
     config.cnn_module_kernel = 15
     config.use_cnn_module = True
