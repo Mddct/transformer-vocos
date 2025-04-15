@@ -39,6 +39,7 @@ TODO:
    - [ ] transformer discriminators
    - [ ] distill
    - [x] resume
+   - [ ] stereo for music
 - [ ] dev benchmark etc
 - [ ] infer
    - [x] offline
