@@ -49,7 +49,7 @@ class VocosTrainModel(torch.nn.Module):
         mels_masks = ~mels_padding
 
         if self.projection is not None:
-            mels = self.projection(mels)
+            mels = self.projection(mels.transpose(1, 2)).transpose(1, 2)
         x, mask = self.backbone(mels.transpose(1, 2), mels_masks)
         wav_g, wav_g_mask = self.head(x, mask.squeeze(1))
         wav_g = wav_g * wav_g_mask
