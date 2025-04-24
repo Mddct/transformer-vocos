@@ -6,17 +6,21 @@ from torch import nn
 from vocos.utils import MelSpectrogram
 
 
-def cal_mean_with_mask(input: torch.Tensor, mask: torch.Tensor):
+def cal_mean_with_mask(input: torch.Tensor, mask: torch.Tensor, dim=None):
     if mask is None:
         loss_term = torch.mean(torch.clamp(input, min=0))
     else:
-        valid_scores = torch.clamp(input, min=0)
+        valid_scores = input
         masked_scores = valid_scores * mask.float()
 
         valid_elements = mask.broadcast_to(input.shape).sum().float()
         valid_elements = torch.clamp(valid_elements, min=1e-6)
 
-        loss_term = masked_scores.sum() / valid_elements
+        if dim is None:
+            loss_term = masked_scores.sum() / valid_elements
+        else:
+            loss_term = masked_scores.sum(dim=dim,
+                                          keepdim=True) / valid_elements
     return loss_term
 
 
@@ -162,8 +166,8 @@ def compute_discriminator_loss(
     r_losses = []
     g_losses = []
     for dr, dg, mask in zip(disc_real_outputs, disc_generated_outputs, masks):
-        r_loss = cal_mean_with_mask(1 - dr, mask)
-        g_loss = cal_mean_with_mask(1 + dg, mask)
+        r_loss = cal_mean_with_mask(torch.clamp(1 - dr, min=0), mask)
+        g_loss = cal_mean_with_mask(torch.clamp(1 + dg, min=0), mask)
         loss = loss + r_loss + g_loss
         r_losses.append(r_loss)
         g_losses.append(g_loss)
