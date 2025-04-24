@@ -20,6 +20,48 @@ def cal_mean_with_mask(input: torch.Tensor, mask: torch.Tensor):
     return loss_term
 
 
+class MultiScaleMelSpecReconstructionLoss(nn.Module):
+    """ https://arxiv.org/abs/2306.06546
+    """
+
+    def __init__(self,
+                 sample_rate: int = 24000,
+                 n_ffts: List[int] = [32, 64, 128, 256, 512, 1024, 1920, 2048],
+                 n_mels: List[int] = [5, 10, 20, 40, 80, 100, 160, 320],
+                 power=1,
+                 padding="center",
+                 fmin=0,
+                 fmax=None,
+                 norm="slaney",
+                 mel_scale="slaney",
+                 *args,
+                 **kwargs) -> None:
+        super().__init__(*args, **kwargs)
+
+        self.losses_fn = []
+        assert len(n_ffts) == len(n_mels)
+        for (i, n_fft) in enumerate(n_ffts):
+            self.losses_fn.append(
+                MelSpecReconstructionLoss(
+                    sample_rate=sample_rate,
+                    n_fft=n_fft,
+                    hop_length=n_fft // 4,
+                    n_mels=n_mels[i],
+                    power=power,
+                    padding=padding,
+                    fmin=fmin,
+                    fmax=fmax,
+                    norm=norm,
+                    mel_scale=mel_scale,
+                ))
+
+    def forward(self, y_hat, y, mask):
+        loss = 0.0
+        for loss_fn in self.losses_fn:
+            loss = loss + loss_fn(y_hat, y, mask)
+        return loss / len(self.losses_fn)
+
+
 class MelSpecReconstructionLoss(nn.Module):
     """
     L1 distance between the mel-scaled magnitude spectrograms of the ground truth sample and the generated sample
@@ -82,7 +124,7 @@ def compute_generator_loss(
         masks (List[Tensor]): List of boolean masks corresponding to each discriminator output
 
     Returns:
-        Tuple[Tensor, List[Tensor]]: 
+        Tuple[Tensor, List[Tensor]]:
         - Total generator loss (scalar tensor)
          - List of per-discriminator losses
     """
