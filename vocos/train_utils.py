@@ -11,7 +11,9 @@ from wenet.utils.mask import make_pad_mask
 from vocos.dataset import init_dataset_and_dataloader
 from vocos.discriminators import (SequenceMultiPeriodDiscriminator,
                                   SequenceMultiResolutionDiscriminator)
-from vocos.loss import (MelSpecReconstructionLoss, compute_discriminator_loss,
+from vocos.loss import (MelSpecReconstructionLoss,
+                        MultiScaleMelSpecReconstructionLoss,
+                        compute_discriminator_loss,
                         compute_feature_matching_loss, compute_generator_loss)
 from vocos.model import ISTFTHead, Transformer
 from vocos.utils import (MelSpectrogram, get_cosine_schedule_with_warmup,
@@ -87,7 +89,15 @@ class VocosState:
             norm=config.norm,
             padding=config.padding,
             mel_scale=config.mel_scale,
-        ).cuda()
+        ).cuda(
+        ) if not config.multiscale_mel_loss else MultiScaleMelSpecReconstructionLoss(
+            power=config.power,
+            fmin=config.fmin,
+            fmax=config.fmax,
+            norm=config.norm,
+            padding=config.padding,
+            mel_scale=config.mel_scale,
+        )
 
         self.sample_rate = config.sample_rate
         self.learning_rate = config.learning_rate
