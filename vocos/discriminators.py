@@ -5,8 +5,6 @@ import torch.nn.functional as F
 from torch import nn
 from torch.nn import Conv2d
 
-from vocos.loss import cal_mean_with_mask
-
 try:
     from torch.nn.utils.parametrizations import weight_norm
 except:
@@ -177,10 +175,8 @@ class SequenceDiscriminatorR(nn.Module):
         bands: Tuple[Tuple[float, float],
                      ...] = ((0.0, 0.1), (0.1, 0.25), (0.25, 0.5), (0.5, 0.75),
                              (0.75, 1.0)),
-        normalize_volume: bool = False,
     ):
         super().__init__()
-        self.normalize_volume = normalize_volume
         self.window_length = window_length
         self.hop_factor = hop_factor
         self.spec_fn = Spectrogram(n_fft=window_length,
@@ -215,10 +211,8 @@ class SequenceDiscriminatorR(nn.Module):
         mask: torch.Tensor,
     ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor], torch.Tensor]:
 
-        if self.normalize_volume:
-            x_mean = cal_mean_with_mask(x, mask, dim=-1)
-            x = x - x_mean
-            x = 0.8 * x / (x.abs().max(dim=-1, keepdim=True)[0] + 1e-9)
+        x = x - x.mean(dim=-1, keepdim=True)
+        x = 0.8 * x / (x.abs().max(dim=-1, keepdim=True)[0] + 1e-9)
         spec = self.spec_fn(x)
         mask = mask.float()
         out_paddings = frame_paddings(1 - mask.unsqueeze(1),
