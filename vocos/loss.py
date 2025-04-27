@@ -31,7 +31,7 @@ class MultiScaleMelSpecReconstructionLoss(nn.Module):
     def __init__(self,
                  sample_rate: int = 24000,
                  n_ffts: List[int] = [32, 64, 128, 256, 512, 1024, 1920, 2048],
-                 n_mels: List[int] = [5, 10, 20, 40, 80, 100, 160, 320],
+                 n_mels: List[int] = [5, 10, 20, 40, 80, 100, 100, 320],
                  power=1,
                  padding="center",
                  fmin=0,
