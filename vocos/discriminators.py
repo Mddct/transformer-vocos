@@ -143,7 +143,7 @@ class SequenceDiscriminatorP(nn.Module):
 
 class SequenceMultiResolutionDiscriminator(nn.Module):
 
-    def __init__(self, fft_sizes: Tuple[int, ...] = (2048, 1024, 512)):
+    def __init__(self, fft_sizes: Tuple[int, ...] = (2048, 1920, 1024, 512)):
         super().__init__()
         self.discriminators = nn.ModuleList(
             [SequenceDiscriminatorR(window_length=w) for w in fft_sizes])
