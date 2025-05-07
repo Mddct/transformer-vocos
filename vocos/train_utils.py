@@ -331,3 +331,5 @@ class VocosState:
             f'[RANK {self.rank}] Checkpoint: load  checkpoint {checkpoint_dir}'
         )
         dist.barrier()
+        self.scheduler_disc.set_step(self.step)
+        self.scheduler_gen.set_step(self.step)
