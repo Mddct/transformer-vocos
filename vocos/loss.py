@@ -139,7 +139,7 @@ def compute_generator_loss(
     gen_losses = []
 
     for dg, mask in zip(disc_outputs, masks):
-        loss_term = cal_mean_with_mask(1 - dg, mask)
+        loss_term = cal_mean_with_mask((1 - dg)**2, mask)
         gen_losses.append(loss_term.detach())
         total_loss = total_loss + loss_term
 
