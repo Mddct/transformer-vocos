@@ -114,7 +114,7 @@ class MelSpecReconstructionLoss(nn.Module):
         mel_hat = mel_hat * mel_mask.unsqueeze(1)
         mel = mel * mel_mask.unsqueeze(1)
 
-        loss = torch.nn.functional.l1_loss(mel, mel_hat)
+        loss = cal_mean_with_mask(torch.abs(mel-mel_hat), mel_mask.unsqueeze(1))
 
         return loss
 
