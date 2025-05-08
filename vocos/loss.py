@@ -114,7 +114,7 @@ class MelSpecReconstructionLoss(nn.Module):
         mel_hat = mel_hat * mel_mask.unsqueeze(1)
         mel = mel * mel_mask.unsqueeze(1)
 
-        loss = torch.nn.functional.l1_loss(mel, mel_hat)
+        loss = cal_mean_with_mask(torch.abs(mel-mel_hat), mel_mask.unsqueeze(1))
 
         return loss
 
@@ -139,7 +139,7 @@ def compute_generator_loss(
     gen_losses = []
 
     for dg, mask in zip(disc_outputs, masks):
-        loss_term = cal_mean_with_mask(1 - dg, mask)
+        loss_term = cal_mean_with_mask((1 - dg)**2, mask)
         gen_losses.append(loss_term.detach())
         total_loss = total_loss + loss_term
 
@@ -166,8 +166,8 @@ def compute_discriminator_loss(
     r_losses = []
     g_losses = []
     for dr, dg, mask in zip(disc_real_outputs, disc_generated_outputs, masks):
-        r_loss = cal_mean_with_mask(torch.clamp(1 - dr, min=0), mask)
-        g_loss = cal_mean_with_mask(torch.clamp(1 + dg, min=0), mask)
+        r_loss = cal_mean_with_mask((1 - dr)**2, mask)
+        g_loss = cal_mean_with_mask(dg**2, mask)
         loss = loss + r_loss + g_loss
         r_losses.append(r_loss)
         g_losses.append(g_loss)
