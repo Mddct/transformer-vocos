@@ -177,7 +177,7 @@ class VocosState:
             grad_norm_mpd = torch.nn.utils.clip_grad_norm_(
                 self.multiperioddisc.parameters(), self.clip_grad_norm)
             grad_norm_mrd = torch.nn.utils.clip_grad_norm_(
-                self.multiperioddisc.parameters(), self.clip_grad_norm)
+                self.multiresddisc.parameters(), self.clip_grad_norm)
 
             self.opt_disc.step()
             self.scheduler_disc.step()
