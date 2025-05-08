@@ -36,6 +36,7 @@ def get_config():
     config.use_bfloat16 = False
     # Integer for PRNG random seed.
     config.seed = 2025
+    config.clip_grad_norm = 1
 
     # mel
     config.sample_rate = 24000
