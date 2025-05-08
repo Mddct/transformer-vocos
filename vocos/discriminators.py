@@ -2,9 +2,12 @@ from typing import List, Optional, Tuple
 
 import torch
 import torch.nn.functional as F
+import torchaudio
 from torch import nn
 from torch.nn import Conv2d
+from wenet.utils.mask import make_pad_mask
 
+from vocos.cqt import CQT
 from vocos.loss import cal_mean_with_mask
 
 try:
@@ -252,3 +255,160 @@ class SequenceDiscriminatorR(nn.Module):
         x = torch.flatten(x, 1, -1)
         mask = torch.flatten(mask, 1, -1)
         return x, mask, fmaps, fmaps_mask
+
+
+class SequenceDiscriminatorCQT(nn.Module):
+
+    def __init__(
+        self,
+        cqtd_filters,
+        cqtd_max_filters,
+        cqtd_filters_scale,
+        cqtd_dilations,
+        cqtd_in_channels,
+        cqtd_out_channels,
+        sample_rate,
+        hop_length: int,
+        n_octaves: int,
+        bins_per_octave: int,
+    ):
+        super().__init__()
+
+        self.filters = cqtd_filters
+        self.max_filters = cqtd_max_filters
+        self.filters_scale = cqtd_filters_scale
+        self.kernel_size = (3, 9)
+        self.dilations = cqtd_dilations
+        self.stride = (1, 2)
+
+        self.in_channels = cqtd_in_channels
+        self.out_channels = cqtd_out_channels
+        self.fs = sample_rate
+        self.hop_length = hop_length
+        self.n_octaves = n_octaves
+        self.bins_per_octave = bins_per_octave
+
+        # Lazy-load
+
+        self.cqt_transform = CQT(
+            self.fs * 2,
+            hop_length=self.hop_length,
+            n_bins=self.bins_per_octave * self.n_octaves,
+            bins_per_octave=self.bins_per_octave,
+        )
+
+        self.conv_pres = nn.ModuleList([
+            nn.Conv2d(
+                self.in_channels * 2,
+                self.in_channels * 2,
+                kernel_size=self.kernel_size,
+                padding=self.get_2d_padding(self.kernel_size),
+            ) for _ in range(self.n_octaves)
+        ])
+
+        self.convs = nn.ModuleList([
+            nn.Conv2d(
+                self.in_channels * 2,
+                self.filters,
+                kernel_size=self.kernel_size,
+                padding=self.get_2d_padding(self.kernel_size),
+            )
+        ])
+        in_chs = min(self.filters_scale * self.filters, self.max_filters)
+        for i, dilation in enumerate(self.dilations):
+            out_chs = min((self.filters_scale**(i + 1)) * self.filters,
+                          self.max_filters)
+            self.convs.append(
+                weight_norm(
+                    nn.Conv2d(
+                        in_chs,
+                        out_chs,
+                        kernel_size=self.kernel_size,
+                        stride=self.stride,
+                        dilation=(dilation, 1),
+                        padding=self.get_2d_padding(self.kernel_size,
+                                                    (dilation, 1)),
+                    )))
+            in_chs = out_chs
+        out_chs = min(
+            (self.filters_scale**(len(self.dilations) + 1)) * self.filters,
+            self.max_filters,
+        )
+        self.convs.append(
+            weight_norm(
+                nn.Conv2d(
+                    in_chs,
+                    out_chs,
+                    kernel_size=(self.kernel_size[0], self.kernel_size[0]),
+                    padding=self.get_2d_padding(
+                        (self.kernel_size[0], self.kernel_size[0])),
+                )))
+
+        self.conv_post = weight_norm(
+            nn.Conv2d(
+                out_chs,
+                self.out_channels,
+                kernel_size=(self.kernel_size[0], self.kernel_size[0]),
+                padding=self.get_2d_padding(
+                    (self.kernel_size[0], self.kernel_size[0])),
+            ))
+
+        self.activation = torch.nn.LeakyReLU(negative_slope=0.1)
+        self.resample = torchaudio.transform.Resample(orig_freq=self.fs,
+                                                      new_freq=self.fs * 2)
+
+        self.cqtd_normalize_volume = False
+
+    def get_2d_padding(
+            self,
+            kernel_size: Tuple[int, int],
+            dilation: Tuple[int, int] = (1, 1),
+    ):
+        return (
+            ((kernel_size[0] - 1) * dilation[0]) // 2,
+            ((kernel_size[1] - 1) * dilation[1]) // 2,
+        )
+
+    def forward(
+        self, x: torch.Tensor, mask: torch.Tensor
+    ) -> Tuple[torch.Tensor, torch.Tensor, List[torch.Tensor]]:
+        fmap = []
+
+        if self.cqtd_normalize_volume:
+            # Remove DC offset
+            x = x - cal_mean_with_mask(x, mask, dim=-1)
+            # Peak normalize the volume of input audio
+            x = 0.8 * x / (x.abs().max(dim=-1, keepdim=True)[0] + 1e-9)
+
+        x = self.resample(x)
+        mask = mask.repeat_interleave(2, dim=-1)
+
+        z, z_length = self.cqt_transform(x, mask.sum(-1))
+        z_mask = ~make_pad_mask(z_length)
+
+        z_amplitude = z[:, :, :, 0].unsqueeze(1)
+        z_phase = z[:, :, :, 1].unsqueeze(1)
+
+        z = torch.cat([z_amplitude, z_phase], dim=1)
+        z = torch.permute(z, (0, 1, 3, 2))  # [B, C, W, T] -> [B, C, T, W]
+        z_mask = z_mask.unsqueeze(1).unsqueeze(-1)
+        z = z * z_mask
+
+        latent_z = []
+        for i in range(self.n_octaves):
+            latent_z.append(self.conv_pres[i](
+                z[:, :, :,
+                  i * self.bins_per_octave:(i + 1) * self.bins_per_octave, ]))
+        latent_z = torch.cat(latent_z, dim=-1)
+        latent_z = latent_z * z_mask
+
+        for i, l in enumerate(self.convs):
+            latent_z = l(latent_z)
+            latent_z = latent_z * z_mask
+            latent_z = self.activation(latent_z)
+            fmap.append(latent_z)
+
+        latent_z = self.conv_post(latent_z)
+        latent_z = latent_z * z_mask
+
+        return latent_z, z_mask, fmap
