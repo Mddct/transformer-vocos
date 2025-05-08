@@ -250,12 +250,15 @@ class VocosState:
                 group['lr'] for group in self.opt_disc.param_groups
             ]
             for i, lr in enumerate(opt_disc_lrs):
-                self.writer.add_scalar('train/lr_disc_{}'.format(i), lr,
-                                       self.step)
+                if self.rank == 0:
+                    self.writer.add_scalar('train/lr_disc_{}'.format(i), lr,
+                                           self.step)
                 log_str += f' lr_disc_{i} {lr:>6.5f}'
         opt_gen_lrs = [group['lr'] for group in self.opt_gen.param_groups]
         for i, lr in enumerate(opt_gen_lrs):
-            self.writer.add_scalar('train/lr_gen_{}'.format(i), lr, self.step)
+            if self.rank == 0:
+                self.writer.add_scalar('train/lr_gen_{}'.format(i), lr,
+                                       self.step)
             log_str += f' lr_gen_{i} {lr:>6.5f}'
 
         if self.decay_mel_coeff:
