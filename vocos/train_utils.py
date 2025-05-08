@@ -99,6 +99,7 @@ class VocosState:
             mel_scale=config.mel_scale,
         ).cuda()
 
+        self.clip_grad_norm = config.clip_grad_norm
         self.sample_rate = config.sample_rate
         self.learning_rate = config.learning_rate
         self.warmup_steps = config.warmup_steps
@@ -173,9 +174,13 @@ class VocosState:
             disc_loss = loss_mp + self.mrd_loss_coeff * loss_mrd
 
             disc_loss.backward()
+            grad_norm_mpd = torch.nn.utils.clip_grad_norm_(
+                self.multiperioddisc.parameters(), self.clip_grad_norm)
+            grad_norm_mrd = torch.nn.utils.clip_grad_norm_(
+                self.multiperioddisc.parameters(), self.clip_grad_norm)
+
             self.opt_disc.step()
             self.scheduler_disc.step()
-            # TODO: integrate simple-trainer
             if self.rank == 0:
                 self.writer.add_scalar("discriminator/total", disc_loss,
                                        self.step)
@@ -183,6 +188,10 @@ class VocosState:
                                        loss_mp, self.step)
                 self.writer.add_scalar("discriminator/multi_res_loss",
                                        loss_mrd, self.step)
+                self.writer.add_scalar("discriminator/multi_period_grad_norm",
+                                       grad_norm_mpd, self.step)
+                self.writer.add_scalar("discriminator/multi_res_grad_norm",
+                                       grad_norm_mrd, self.step)
 
             log_str += f'loss_disc: {disc_loss:>6.3f} loss_mpd: {loss_mp:>6.3f} loss_mrd: {loss_mrd:>6.3f}'
 
@@ -214,6 +223,8 @@ class VocosState:
             gen_loss = gen_loss + loss_gen_mp + self.mrd_loss_coeff * loss_gen_mrd + loss_fm_mp + self.mrd_loss_coeff * loss_fm_mrd
 
         gen_loss.backward()
+        grad_norm_g = torch.nn.utils.clip_grad_norm_(self.model.parameters(),
+                                                     self.clip_grad_norm)
         self.opt_gen.step()
         self.opt_gen.zero_grad()
         self.scheduler_gen.step()
@@ -230,6 +241,8 @@ class VocosState:
                 self.writer.add_scalar("generator/total_loss", gen_loss,
                                        self.step)
             self.writer.add_scalar("generator/mel_loss", mel_loss, self.step)
+            self.writer.add_scalar("generator/grad_norm", grad_norm_g,
+                                   self.step)
 
         log_str += f' loss_gen {gen_loss:>6.3f} mel_loss {mel_loss:>6.3f}'
         if self.config.disc_train_start < self.step + 1:
