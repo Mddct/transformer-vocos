@@ -308,8 +308,8 @@ class VocosState:
             torch.save(opt_gen_state_dict,
                        os.path.join(checkpoint_dir, 'opt_gen.pt'))
 
-            schduler_state_dict = self.scheduler_disc.state_dict()
-            torch.save(schduler_state_dict,
+            scheduler_state_dict = self.scheduler_disc.state_dict()
+            torch.save(scheduler_state_dict,
                        os.path.join(checkpoint_dir, 'disc_scheduler.pt'))
             scheduler_state_dict = self.scheduler_gen.state_dict()
             torch.save(scheduler_state_dict,
@@ -366,5 +366,3 @@ class VocosState:
         self.scheduler_disc.load_state_dict(ckpt)
 
         dist.barrier()
-
-        s
