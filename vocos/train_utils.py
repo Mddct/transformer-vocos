@@ -307,6 +307,14 @@ class VocosState:
             opt_gen_state_dict = self.opt_gen.state_dict()
             torch.save(opt_gen_state_dict,
                        os.path.join(checkpoint_dir, 'opt_gen.pt'))
+
+            schduler_state_dict = self.scheduler_disc.state_dict()
+            torch.save(schduler_state_dict,
+                       os.path.join(checkpoint_dir, 'disc_scheduler.pt'))
+            scheduler_state_dict = self.scheduler_gen.state_dict()
+            torch.save(scheduler_state_dict,
+                       os.path.join(checkpoint_dir, 'gen_scheduler.pt'))
+
             logging.info(
                 f'[RANK {self.rank}] Checkpoint: save to checkpoint {checkpoint_dir}'
             )
@@ -346,6 +354,17 @@ class VocosState:
         logging.info(
             f'[RANK {self.rank}] Checkpoint: load  checkpoint {checkpoint_dir}'
         )
+
+        ckpt = torch.load(os.path.join(checkpoint_dir, 'gen_scheduler.pt'),
+                          map_location='cpu',
+                          mmap=True)
+        self.scheduler_gen.load_state_dict(ckpt)
+
+        ckpt = torch.load(os.path.join(checkpoint_dir, 'disc_scheduler.pt'),
+                          map_location='cpu',
+                          mmap=True)
+        self.scheduler_disc.load_state_dict(ckpt)
+
         dist.barrier()
-        self.scheduler_disc.set_step(self.step)
-        self.scheduler_gen.set_step(self.step)
+
+        s
