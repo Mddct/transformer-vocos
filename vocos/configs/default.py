@@ -57,6 +57,17 @@ def get_config():
     config.pretrain_mel_steps = 0
     config.decay_mel_coeff = False
     config.disc_train_start = 0
+    config.mrd = True
+
+    config.cqtd_filters = 32
+    config.cqtd_max_filters = 1024
+    config.cqtd_filters_scale = 1
+    config.cqtd_dilations = [1, 2, 4]
+    config.cqtd_in_channels = 1
+    config.cqtd_out_channels = 1
+    config.cqtd_hop_lengths = [512, 256, 256, 480]
+    config.cqtd_n_octaves = [9, 9, 9]
+    config.cqtd_bins_per_octaves = [24, 36, 48, 36]
 
     # TODO(Mddct:) other info
 

@@ -58,6 +58,7 @@ def get_config():
     config.pretrain_mel_steps = 0
     config.decay_mel_coeff = False
     config.disc_train_start = 0
+    config.mrd = True
 
     # TODO(Mddct:) other info
 
