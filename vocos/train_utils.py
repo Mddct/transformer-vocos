@@ -10,7 +10,8 @@ from wenet.utils.mask import make_pad_mask
 
 from vocos.dataset import init_dataset_and_dataloader
 from vocos.discriminators import (SequenceMultiPeriodDiscriminator,
-                                  SequenceMultiResolutionDiscriminator)
+                                  SequenceMultiResolutionDiscriminator,
+                                  SequenceMultiScaleSubbandCQTDiscriminator)
 from vocos.loss import (MelSpecReconstructionLoss,
                         MultiScaleMelSpecReconstructionLoss,
                         compute_discriminator_loss,
@@ -76,7 +77,8 @@ class VocosState:
         self.multiperioddisc = torch.nn.parallel.DistributedDataParallel(
             SequenceMultiPeriodDiscriminator().cuda())
         self.multiresddisc = torch.nn.parallel.DistributedDataParallel(
-            SequenceMultiResolutionDiscriminator().cuda())
+            SequenceMultiResolutionDiscriminator().cuda() if config.mrd is True
+            else SequenceMultiScaleSubbandCQTDiscriminator(config).cuda())
 
         self.melspec_loss = MelSpecReconstructionLoss(
             sample_rate=config.sample_rate,

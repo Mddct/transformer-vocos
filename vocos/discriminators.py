@@ -3,7 +3,7 @@ from typing import List, Optional, Tuple
 import torch
 import torch.nn.functional as F
 import torchaudio
-from torch import nn
+from torch import nn, strided
 from torch.nn import Conv2d
 from wenet.utils.mask import make_pad_mask
 
@@ -257,6 +257,48 @@ class SequenceDiscriminatorR(nn.Module):
         return x, mask, fmaps, fmaps_mask
 
 
+class SequenceMultiScaleSubbandCQTDiscriminator(nn.Module):
+
+    def __init__(self, config):
+        super().__init__()
+        self.discriminators = nn.ModuleList([
+            SequenceDiscriminatorCQT(
+                config.cqtd_filters,
+                config.cqtd_max_filters,
+                config.cqtd_filters_scale,
+                config.cqtd_dilations,
+                config.cqtd_in_channels,
+                config.cqtd_out_channels,
+                config.sample_rate,
+                config.cqtd_hop_lengths[i],
+                n_octaves=config.cqtd_n_octaves[i],
+                bins_per_octave=config.cqtd_bins_per_octaves[i],
+            ) for i in range(config.cqtd_hop_lengths)
+        ])
+
+    def forward(
+        self,
+        y: torch.Tensor,
+        mask: torch.Tensor,
+    ) -> Tuple[List[torch.Tensor], List[torch.Tensor],
+               List[List[torch.Tensor]], List[List[torch.Tensor]]]:
+
+        logits = []
+        fmaps = []
+        fmaps_mask = []
+        logit_masks = []
+
+        for disc in self.discriminators:
+            logit, logit_mask, fmap = disc(y, mask)
+            fmap_mask = logit_mask
+            logits.append(logit)
+            fmaps.append(fmap)
+            fmaps_mask.append(fmap_mask)
+            logit_masks.append(logit_mask)
+
+        return logits, logit_masks, fmaps, fmaps_mask
+
+
 class SequenceDiscriminatorCQT(nn.Module):
 
     def __init__(
@@ -287,8 +329,6 @@ class SequenceDiscriminatorCQT(nn.Module):
         self.hop_length = hop_length
         self.n_octaves = n_octaves
         self.bins_per_octave = bins_per_octave
-
-        # Lazy-load
 
         self.cqt_transform = CQT(
             self.fs * 2,
@@ -321,8 +361,8 @@ class SequenceDiscriminatorCQT(nn.Module):
             self.convs.append(
                 weight_norm(
                     nn.Conv2d(
-                        in_chs,
-                        out_chs,
+                        int(in_chs),
+                        int(out_chs),
                         kernel_size=self.kernel_size,
                         stride=self.stride,
                         dilation=(dilation, 1),
@@ -337,8 +377,8 @@ class SequenceDiscriminatorCQT(nn.Module):
         self.convs.append(
             weight_norm(
                 nn.Conv2d(
-                    in_chs,
-                    out_chs,
+                    int(in_chs),
+                    int(out_chs),
                     kernel_size=(self.kernel_size[0], self.kernel_size[0]),
                     padding=self.get_2d_padding(
                         (self.kernel_size[0], self.kernel_size[0])),
@@ -346,7 +386,7 @@ class SequenceDiscriminatorCQT(nn.Module):
 
         self.conv_post = weight_norm(
             nn.Conv2d(
-                out_chs,
+                int(out_chs),
                 self.out_channels,
                 kernel_size=(self.kernel_size[0], self.kernel_size[0]),
                 padding=self.get_2d_padding(
@@ -354,8 +394,8 @@ class SequenceDiscriminatorCQT(nn.Module):
             ))
 
         self.activation = torch.nn.LeakyReLU(negative_slope=0.1)
-        self.resample = torchaudio.transform.Resample(orig_freq=self.fs,
-                                                      new_freq=self.fs * 2)
+        self.resample = torchaudio.transforms.Resample(orig_freq=self.fs,
+                                                       new_freq=self.fs * 2)
 
         self.cqtd_normalize_volume = False
 
@@ -384,11 +424,10 @@ class SequenceDiscriminatorCQT(nn.Module):
         mask = mask.repeat_interleave(2, dim=-1)
 
         z, z_length = self.cqt_transform(x, mask.sum(-1))
+        z = torch.view_as_real(z)
         z_mask = ~make_pad_mask(z_length)
-
         z_amplitude = z[:, :, :, 0].unsqueeze(1)
         z_phase = z[:, :, :, 1].unsqueeze(1)
-
         z = torch.cat([z_amplitude, z_phase], dim=1)
         z = torch.permute(z, (0, 1, 3, 2))  # [B, C, W, T] -> [B, C, T, W]
         z_mask = z_mask.unsqueeze(1).unsqueeze(-1)
@@ -412,3 +451,24 @@ class SequenceDiscriminatorCQT(nn.Module):
         latent_z = latent_z * z_mask
 
         return latent_z, z_mask, fmap
+
+
+if __name__ == '__main__':
+    model = SequenceDiscriminatorCQT(
+        32,
+        1024,
+        1.0,
+        [1, 2, 4],
+        1,
+        1,
+        24000,
+        256,
+        9,
+        48,
+    )
+
+    samples = int(24000)
+
+    mask = torch.ones(1, samples, dtype=torch.bool)
+    output, z_mask, fmap = model(torch.rand(1, samples), mask)
+    print(output.shape, z_mask.shape, fmap[0].shape)

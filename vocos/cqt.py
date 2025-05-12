@@ -7,6 +7,7 @@ from typing import Callable, Tuple
 import torch
 import torch.nn.functional as F
 import torchaudio
+from torch.nn.modules.linear import NonDynamicallyQuantizableLinear
 from torch.utils.data import sampler
 
 
@@ -352,7 +353,9 @@ class VQT(torch.nn.Module):
             if buffer_index == 0:
                 vqt = temp_vqt
             else:
-                vqt = torch.cat([temp_vqt, vqt], dim=-2)
+                lmin = min(temp_vqt.shape[-1], vqt.shape[-1])
+                vqt = torch.cat([temp_vqt[:, :, :lmin], vqt[:, :, :lmin]],
+                                dim=-2)
 
             if temp_hop % 2 == 0:
                 waveform = self.resample(waveform)
@@ -404,7 +407,6 @@ class CQT(torch.nn.Module):
     ) -> None:
         super(CQT, self).__init__()
         torch._C._log_api_usage_once("torchaudio.transforms.CQT")
-
         # CQT corresponds to a VQT with gamma set to 0
         self.hop_length = hop_length
         self.transform = VQT(
@@ -428,7 +430,8 @@ class CQT(torch.nn.Module):
         Returns:
             Tensor: constant-Q transform spectrogram of size (..., channels, ``n_bins``, time).
         """
-        return self.transform(waveform), torch.ceil(lengths / hop_length)
+        return self.transform(waveform), torch.ceil(
+            lengths / self.hop_length).to(torch.int64)
 
 
 class InverseCQT(torch.nn.Module):
@@ -612,13 +615,19 @@ class InverseCQT(torch.nn.Module):
 
 if __name__ == '__main__':
     sample_rate = 24000
-    hop_length = 480
 
-    samples = 24000
+    samples = int(24000)
 
-    n_frames = math.ceil(samples / hop_length)
-    model = CQT(sample_rate, hop_length)
-    print(
-        model(torch.rand(1, samples), torch.tensor([samples],
-                                                   dtype=torch.int64)),
-        n_frames)
+    cqtd_hop_lengths = [512, 256, 256]
+    cqtd_n_octaves = [9, 9, 9]
+    cqtd_bins_per_octaves = [24, 36, 48]
+    for hop_length, n_octaves, n_bins_per_octaves in zip(
+            cqtd_hop_lengths, cqtd_n_octaves, cqtd_bins_per_octaves):
+        n_bins = n_bins_per_octaves * n_octaves
+
+        model = CQT(sample_rate, hop_length, 13.0, n_bins, n_bins_per_octaves)
+
+        output, n_frames = model(torch.rand(1, samples),
+                                 torch.tensor([samples], dtype=torch.int64))
+        print(output.shape)
+        print(n_frames)
