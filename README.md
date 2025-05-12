@@ -36,11 +36,10 @@ TODO:
   - [x] check training process
    - [x] generator
    - [x] disc
-   - [ ] transformer discriminators
    - [ ] distill
    - [x] resume
    - [ ] stereo for music
-   - [ ] cqt loss
+   - [x] cqt loss
 - [ ] dev benchmark etc
 - [ ] infer
    - [x] offline
