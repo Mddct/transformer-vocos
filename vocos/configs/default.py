@@ -66,7 +66,7 @@ def get_config():
     config.cqtd_in_channels = 1
     config.cqtd_out_channels = 1
     config.cqtd_hop_lengths = [512, 256, 256, 480]
-    config.cqtd_n_octaves = [9, 9, 9]
+    config.cqtd_n_octaves = [9, 9, 9, 9]
     config.cqtd_bins_per_octaves = [24, 36, 48, 36]
 
     # TODO(Mddct:) other info
