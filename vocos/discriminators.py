@@ -425,7 +425,7 @@ class SequenceDiscriminatorCQT(nn.Module):
 
         z, z_length = self.cqt_transform(x, mask.sum(-1))
         z = torch.view_as_real(z)
-        z_mask = ~make_pad_mask(z_length)
+        z_mask = ~make_pad_mask(z_length, z.shape[-1])
         z_amplitude = z[:, :, :, 0].unsqueeze(1)
         z_phase = z[:, :, :, 1].unsqueeze(1)
         z = torch.cat([z_amplitude, z_phase], dim=1)
