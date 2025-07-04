@@ -64,6 +64,72 @@ def frame_paddings(paddings: torch.Tensor, *, frame_size: int,
     return out_paddings
 
 
+class STFT(torch.nn.Module):
+
+    def __init__(self,
+                 n_fft=1024,
+                 hop_length=256,
+                 padding="center",
+                 window_fn=torch.hann_window,
+                 power: int = 1) -> None:
+        super().__init__()
+        if padding not in ["center", "same"]:
+            raise ValueError("Padding must be 'center' or 'same'.")
+        self.padding = padding
+        self.n_fft = n_fft
+        self.hop_length = hop_length
+        self.win_length = hop_length
+        self.paddding = padding
+        self.windo_fn = window_fn
+        self.power = power
+
+    def forward(self, audio, paddings):
+        """
+        Args:
+            audio: (B, C, T) or (B, T) or (T,)
+            paddings: (B, T) or (T,) optional, corresponding to the padding mask in the audio data
+                    (1 indicates padding, 0 indicates valid data).
+            (mel_features, out_paddings)
+
+        Returns:
+            mel_features: (B, n_mels, T')
+            out_paddings: (B, T') propagated padding information.
+        """
+        # Manual padding is needed when `padding="same"`
+        pad = (self.mel_spec.win_length
+               or self.mel_spec.n_fft) - self.mel_spec.hop_length
+        if self.padding == "center":
+            pad_left, pad_right = pad // 2, pad - pad // 2
+            audio = torch.nn.functional.pad(audio, (pad_left, pad_right),
+                                            mode="reflect")
+            # Padding should also be adjusted
+            if paddings is not None:
+                paddings = torch.nn.functional.pad(paddings,
+                                                   (pad_left, pad_right),
+                                                   value=1)
+        elif self.padding == "same":
+            audio = torch.nn.functional.pad(audio, (0, pad), mode="reflect")
+            # Padding should also be adjusted
+            if paddings is not None:
+                paddings = torch.nn.functional.pad(paddings, (0, pad), value=1)
+
+        spec_f = torch.stft(
+            audio,
+            self.fft_size,
+            self.hop_size,
+            self.win_length,
+            self.window,
+            return_complex=True,
+            center=False,
+        )
+
+        # Compute padding propagation
+        out_paddings = frame_paddings(paddings,
+                                      frame_size=self.mel_spec.n_fft,
+                                      hop_size=self.mel_spec.hop_length)
+        return spec_f, out_paddings
+
+
 class MelSpectrogram(torch.nn.Module):
 
     def __init__(
@@ -96,7 +162,7 @@ class MelSpectrogram(torch.nn.Module):
             mel_scale=mel_scale,
         )
 
-    def forward(self, audio, paddings=None, **kwargs):
+    def forward(self, audio, paddings=None):
         """
         Args:
             audio: (B, C, T) or (B, T) or (T,)
