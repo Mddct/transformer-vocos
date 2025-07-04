@@ -80,7 +80,7 @@ class STFT(torch.nn.Module):
         self.hop_length = hop_length
         self.win_length = hop_length
         self.paddding = padding
-        self.windo_fn = window_fn
+        self.win = window_fn(self.win_length)
         self.power = power
 
     def forward(self, audio, paddings):
@@ -96,8 +96,7 @@ class STFT(torch.nn.Module):
             out_paddings: (B, T') propagated padding information.
         """
         # Manual padding is needed when `padding="same"`
-        pad = (self.mel_spec.win_length
-               or self.mel_spec.n_fft) - self.mel_spec.hop_length
+        pad = (self.win_length or self.n_fft) - self.hop_length
         if self.padding == "center":
             pad_left, pad_right = pad // 2, pad - pad // 2
             audio = torch.nn.functional.pad(audio, (pad_left, pad_right),
@@ -115,18 +114,18 @@ class STFT(torch.nn.Module):
 
         spec_f = torch.stft(
             audio,
-            self.fft_size,
-            self.hop_size,
+            self.n_fft,
+            self.hop_length,
             self.win_length,
-            self.window,
+            self.win,
             return_complex=True,
             center=False,
         )
 
         # Compute padding propagation
         out_paddings = frame_paddings(paddings,
-                                      frame_size=self.mel_spec.n_fft,
-                                      hop_size=self.mel_spec.hop_length)
+                                      frame_size=self.n_fft,
+                                      hop_size=self.hop_length)
         return spec_f, out_paddings
 
 

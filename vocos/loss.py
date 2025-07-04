@@ -1,5 +1,6 @@
 from typing import List, Tuple
 
+import numpy as np
 import torch
 from torch import nn
 
@@ -15,7 +16,6 @@ def cal_mean_with_mask(input: torch.Tensor, mask: torch.Tensor, dim=None):
 
         valid_elements = mask.broadcast_to(input.shape).sum(
             dim=dim, keepdim=True).float()
-        print(valid_elements.shape)
         valid_elements = torch.clamp(valid_elements, min=1e-6)
 
         if dim is None:
@@ -44,8 +44,8 @@ def _unwrap(p, dim=-1, discont=np.pi):
     return out
 
 
-def compute_phi_loss(stft_pred, stft_true, mask):
-    F, T_stft = stft_pred.shape[-2:]
+def compute_phase_loss(stft_pred, stft_true, mask, win_length, hop_size):
+    B, C, F, T_stft = stft_pred.shape
     stft_pred = stft_pred.view(B, C, F, T_stft)
     stft_true = stft_true.view(B, C, F, T_stft)
 
@@ -65,13 +65,11 @@ def compute_phi_loss(stft_pred, stft_true, mask):
 
     if mask is not None:
         # mask: (B, T) -> STFT 帧级别 mask
-        valid_lengths = (mask.sum(dim=-1) -
-                         self.win_length) // self.hop_size + 1
-        valid_lengths = torch.clamp(valid_lengths - 1, min=0)
+        valid_lengths = mask.sum(-1)
 
-        time_indices = torch.arange(T_stft - 1,
-                                    device=y_pred.device).unsqueeze(0).expand(
-                                        B, T_stft - 1)
+        time_indices = torch.arange(
+            T_stft - 1,
+            device=stft_pred.device).unsqueeze(0).expand(B, T_stft - 1)
         mask_length = time_indices < valid_lengths.unsqueeze(1)
         mask_length = mask_length.unsqueeze(1).unsqueeze(1).expand(B, C, F, -1)
 
@@ -134,63 +132,87 @@ class STFTLoss(nn.Module):
                  padding="center",
                  window_fn=torch.hann_window,
                  spectralconv_weight: int = 1,
-                 log_weight: int = 1,
-                 lin_weight: int = 0.1,
-                 phi_weight: int = 0.5,
+                 log_weight: float = 1,
+                 lin_weight: float = 0.1,
+                 phase_weight: float = 0.5,
                  power: int = 1) -> None:
 
         super().__init__()
+
+        #TODO: A_weighting or K_weighting
         self.stft = STFT(n_fft, hop_length, padding, window_fn, power)
         self.log_weight = log_weight
         self.spectralconv_weight = spectralconv_weight
         self.lin_weight = lin_weight
-        self.phi_weight = phi_weight
+        self.phi_weight = phase_weight
 
-    def forward(self, y_hat, y, mask) -> torch.Tensor:
+    def forward(self, y_hat, y, mask):
         """
         Args:
-            y_hat (Tensor): Predicted audio waveform.
-            y (Tensor): Ground truth audio waveform.
+            y_hat (Tensor): Predicted audio waveform. [B,C,T]
+            y (Tensor): Ground truth audio waveform. [B,C,T]
 
         Returns:
             Tensor: L1 loss between the mel-scaled magnitude spectrograms.
         """
-
-        spec_hat, spec_hat_padding = self.stft(y_hat, ~mask.bool())
-        spec, _ = self.stft(y, ~mask.bool())
-        spec_mask = ~spec_hat_padding
+        B, C, T = y_hat.shape
+        y_hat = y_hat.view(-1, T)
+        y = y.view(-1, T)
+        spec_hat, spec_hat_padding = self.stft(
+            y_hat, ~mask.unsqueeze(1).repeat(1, C, 1).view(-1, T).bool())
+        spec, _ = self.stft(
+            y, ~mask.unsqueeze(1).repeat(1, C, 1).view(-1, T).bool())
+        spec_hat = spec_hat.view(B, C, spec_hat.shape[-2], -1)
+        spec = spec.view(B, C, spec.shape[-2], -1)
+        spec_mask = ~spec_hat_padding.view(B, C,
+                                           spec_hat_padding.shape[-1])[:, 0, :]
 
         mag_hat = spec_hat.abs()
         mag = spec.abs()
 
         loss = 0.0
+        loss_mag = None
         if self.lin_weight != 0:
             loss_mag = masked_spectral_convergence_loss(
                 mag_hat, mag,
-                spec_mask.unsqueeze(1).unsqueeze(1))  # [B,C]
-            loss = loss + self.spectralconv_weight * loss_mag.mean()
+                spec_mask.unsqueeze(1).unsqueeze(1)).mean()  # [B,C]
+            loss = loss + self.spectralconv_weight * loss_mag
 
         # log
+        loss_log_mag = None
         if self.log_weight != 0:
             loss_log_mag = cal_mean_with_mask(
-                torch.log(torch.clip(mag, min=1e-7)) -
-                torch.log(torch.clip(mag_hat, min=1e-7)),
+                torch.abs(
+                    torch.log(torch.clip(mag, min=1e-7)) -
+                    torch.log(torch.clip(mag_hat, min=1e-7))),
                 spec_mask.unsqueeze(1).unsqueeze(2),
-                dim=[0, 1, 2, 3])  # [B,C]
-            loss = loss + self.log_weight * loss_log_mag.mean()
+                dim=[0, 1, 2, 3]).mean()  # [B,C]
+            loss = loss + self.log_weight * loss_log_mag
+
         # linear
+        loss_lin_mag = None
         if self.lin_weight != 0:
             loss_lin_mag = cal_mean_with_mask(
-                torch.clip(mag, min=1e-7) - torch.clip(mag_hat, min=1e-7),
+                torch.abs(
+                    torch.clip(mag, min=1e-7) - torch.clip(mag_hat, min=1e-7)),
                 spec_mask.unsqueeze(1).unsqueeze(2),
-                dim=[0, 1, 2, 3])
-            loss = loss + loss_lin_mag * self.lin_weight.mean()
+                dim=[0, 1, 2, 3]).mean()
+            loss = loss + loss_lin_mag * loss_lin_mag
 
+        loss_phase = None
         if self.phi_weight != 0:
-            loss_phi = compute_phi_loss(spec_hat, spec, spec_mask)
-            loss = loss + self.phi_weight * loss_phi
+            loss_phase = compute_phase_loss(spec_hat, spec, spec_mask,
+                                            self.stft.win_length,
+                                            self.stft.hop_length)
+            loss = loss + self.phi_weight * loss_phase
 
-        return loss
+        return {
+            "loss": loss,
+            "loss_mag": loss_mag,
+            "loss_log_mag": loss_log_mag,
+            "loss_lin_mag": loss_lin_mag,
+            "loss_phase": loss_phase,
+        }
 
 
 class MultiScaleMelSpecReconstructionLoss(nn.Module):
@@ -358,3 +380,15 @@ def compute_feature_matching_loss(
             loss = loss + cal_mean_with_mask(torch.abs(rl - gl), m)
             nums += 1
     return loss / nums
+
+
+if __name__ == '__main__':
+
+    loss_fn = STFTLoss(882 * 4, 882, phase_weight=0.5)
+    wav = torch.rand(1, 2, 48000)
+    wav_g = torch.rand(1, 2, 48000)
+
+    mask = torch.ones(1, 48000)
+
+    loss = loss_fn(wav_g, wav, mask)
+    print(loss)
