@@ -2,20 +2,13 @@ from typing import List, Tuple
 
 import torch
 import torch.nn.functional as F
-import torchaudio
-from einops import rearrange
 from torch import nn
 from torch.nn.utils import weight_norm
 from vocos.utils import Spectrogram
 
 
-def checkpoint(function, *args, **kwargs):
-    kwargs.setdefault("use_reentrant", False)
-    return torch.utils.checkpoint.checkpoint(function, *args, **kwargs)
-
-
-def update_mask_vectorized(mask_in: torch.Tensor, kernel_size: int,
-                           stride: int, dilation: int, padding: int):
+def update_mask(mask_in: torch.Tensor, kernel_size: int, stride: int,
+                dilation: int, padding: int):
     """
     Update mask with vectorized min pooling operation.
     mask_in: [B, 1, T_in] binary mask, 1=valid, 0=padding
@@ -72,7 +65,7 @@ class DiscriminatorSTFT(nn.Module):
                  filters_scale: int = 1,
                  kernel_size: Tuple[int, int] = (3, 9),
                  dilations: List = [1, 2, 4],
-                 stride: Tuple[int, int] = (1, 1),
+                 stride: Tuple[int, int] = (1, 2),
                  normalized: bool = True,
                  activation: str = 'LeakyReLU',
                  activation_params: dict = {'negative_slope': 0.2},
@@ -143,7 +136,6 @@ class DiscriminatorSTFT(nn.Module):
             mask_out: propagated mask after conv layers
         """
         fmap = []
-        B, C, T = x.shape
         z, z_paddings = self.spec_transform(x, ~mask.bool())
         mask = ~z_paddings
 
@@ -151,20 +143,20 @@ class DiscriminatorSTFT(nn.Module):
             z = z * torch.pow(z.abs() + 1e-6, self.spec_scale_pow)
 
         z = torch.cat([z.real, z.imag], dim=1)
-        z = rearrange(z, 'b c f t -> b c t f')
-
+        # z = rearrange(z, 'b c f t -> b c t f')
+        z = z.transpose(-1, -2)
+        z = z * mask[:, None, :, None]
         for layer in self.convs:
             stride_t = layer.conv.stride[0]
             kernel_t = layer.conv.kernel_size[0]
             dilation_t = layer.conv.dilation[0]
             padding_t = layer.conv.padding[0]
 
+            z = layer(z)
             if mask is not None:
-                mask = update_mask_vectorized(mask, kernel_t, stride_t,
-                                              dilation_t, padding_t)
-                print(mask)
-
-            z = checkpoint(layer, z)
+                mask = update_mask(mask, kernel_t, stride_t, dilation_t,
+                                   padding_t)
+            z = z * mask[:, None, :, None]
             z = self.activation(z)
             fmap.append(z)
 
@@ -174,10 +166,11 @@ class DiscriminatorSTFT(nn.Module):
         padding_t = self.conv_post.conv.padding[0]
 
         if mask is not None:
-            mask = update_mask_vectorized(mask, kernel_t, stride_t, dilation_t,
-                                          padding_t)
+            mask = update_mask(mask, kernel_t, stride_t, dilation_t, padding_t)
+        z = z * mask[:, None, :, None]
+        z = self.conv_post(z)
 
-        z = checkpoint(self.conv_post, z)
+        # TODO: use checkpoint
         mask_out = mask if mask is not None else None
 
         return z, fmap, mask_out
@@ -226,12 +219,3 @@ class MultiScaleSTFTDiscriminator(nn.Module):
             fmaps.append(fmap)
             masks.append(mask_out)
         return logits, fmaps, masks
-
-
-if __name__ == '__main__':
-    disc = DiscriminatorSTFT(32, 2, 2)
-    print(disc)
-    audio = torch.randn(1, 2, 48000)
-    mask = torch.ones(1, 1, 48000)
-
-    disc(audio, mask)
