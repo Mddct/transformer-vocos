@@ -1,6 +1,7 @@
 import math
 import os
 from functools import partial
+from typing import Optional
 
 import torch
 import torch.distributed as dist
@@ -66,12 +67,13 @@ def frame_paddings(paddings: torch.Tensor, *, frame_size: int,
 
 class STFT(torch.nn.Module):
 
-    def __init__(self,
-                 n_fft=1024,
-                 hop_length=256,
-                 padding="center",
-                 window_fn=torch.hann_window,
-                 power: int = 1) -> None:
+    def __init__(
+        self,
+        n_fft=1024,
+        hop_length=256,
+        padding="center",
+        window_fn=torch.hann_window,
+    ) -> None:
         super().__init__()
         if padding not in ["center", "same"]:
             raise ValueError("Padding must be 'center' or 'same'.")
@@ -81,7 +83,6 @@ class STFT(torch.nn.Module):
         self.win_length = hop_length
         self.paddding = padding
         self.win = window_fn(self.win_length)
-        self.power = power
 
     def forward(self, audio, paddings):
         """
@@ -126,6 +127,34 @@ class STFT(torch.nn.Module):
         out_paddings = frame_paddings(paddings,
                                       frame_size=self.n_fft,
                                       hop_size=self.hop_length)
+        return spec_f, out_paddings
+
+
+class Spectrogram(STFT):
+
+    def __init__(self,
+                 n_fft=1024,
+                 hop_length=256,
+                 padding="center",
+                 window_fn=torch.hann_window,
+                 window_norm: bool = True,
+                 power: Optional[int] = None) -> None:
+        super().__init__(n_fft, hop_length, padding, window_fn)
+        self.power = power
+        self.window_norm = window_norm
+
+    def forward(self, audio, paddings):
+        shape = audio.size()
+        audio = audio.reshape(-1, shape[-1])
+        spec_f, out_paddings = super().forward(audio, paddings)
+        spec_f = spec_f.reshape(shape[:-1] + spec_f.shape[-2:])
+
+        if self.window_norm:
+            spec_f /= self.win.pow(2.0).sum().sqrt()
+        if self.power:
+            if self.power == 1.0:
+                return spec_f.abs(), out_paddings
+            return spec_f.abs().pow(self.power)
         return spec_f, out_paddings
 
 
