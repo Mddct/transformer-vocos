@@ -26,7 +26,7 @@ def cal_mean_with_mask(input: torch.Tensor, mask: torch.Tensor, dim=None):
     return loss_term
 
 
-def _unwrap(p, dim=-1, discont=np.pi):
+def _unwrap(p, dim=-1):
     dd = torch.diff(p, dim=dim)
     dd_mod = (dd + np.pi) % (2 * np.pi) - np.pi
 
@@ -44,7 +44,7 @@ def _unwrap(p, dim=-1, discont=np.pi):
     return out
 
 
-def compute_phase_loss(stft_pred, stft_true, mask, win_length, hop_size):
+def compute_phase_loss(stft_pred, stft_true, mask):
     B, C, F, T_stft = stft_pred.shape
     stft_pred = stft_pred.view(B, C, F, T_stft)
     stft_true = stft_true.view(B, C, F, T_stft)
@@ -124,6 +124,43 @@ def masked_spectral_convergence_loss(x_mag: torch.Tensor, y_mag: torch.Tensor,
     return loss
 
 
+class MultiScaleSFTLoss(nn.Module):
+
+    def __init__(
+        self,
+        n_ffts: List[int] = [
+            32, 64, 128, 256, 512, 1024, 2048, 44100 // 50 * 4
+        ],
+        padding="center",
+        spectralconv_weight: float = 1,
+        log_weight: float = 1,
+        lin_weight: float = 0.1,
+        phase_weight: float = 0.5,
+    ) -> None:
+        super().__init__()
+
+        self.n_ffts = n_ffts
+        self.losses = torch.nn.ModuleList([
+            STFTLoss(
+                n_fft,
+                n_fft // 4,
+                padding,
+                spectralconv_weight=spectralconv_weight,
+                log_weight=log_weight,
+                lin_weight=lin_weight,
+                phase_weight=phase_weight,
+            ) for n_fft in n_ffts
+        ])
+
+    def forward(self, y_hat, y, mask):
+        loss = 0.0
+        for loss_fn in self.losses:
+            loss_dict = loss_fn(y_hat, y, mask)
+            loss = loss + loss_dict['loss']
+        # TODO: other loss info
+        return loss
+
+
 class STFTLoss(nn.Module):
 
     def __init__(self,
@@ -131,7 +168,7 @@ class STFTLoss(nn.Module):
                  hop_length=256,
                  padding="center",
                  window_fn=torch.hann_window,
-                 spectralconv_weight: int = 1,
+                 spectralconv_weight: float = 1,
                  log_weight: float = 1,
                  lin_weight: float = 0.1,
                  phase_weight: float = 0.5,
