@@ -238,9 +238,7 @@ class STFTLoss(nn.Module):
 
         loss_phase = None
         if self.phi_weight != 0:
-            loss_phase = compute_phase_loss(spec_hat, spec, spec_mask,
-                                            self.stft.win_length,
-                                            self.stft.hop_length)
+            loss_phase = compute_phase_loss(spec_hat, spec, spec_mask)
             loss = loss + self.phi_weight * loss_phase
 
         return {
