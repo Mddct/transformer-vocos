@@ -136,6 +136,7 @@ class DiscriminatorSTFT(nn.Module):
             mask_out: propagated mask after conv layers
         """
         fmap = []
+        fmap_mask = []
         z, z_paddings = self.spec_transform(x, ~mask.bool())
         mask = ~z_paddings
 
@@ -159,6 +160,7 @@ class DiscriminatorSTFT(nn.Module):
             z = z * mask[:, None, :, None]
             z = self.activation(z)
             fmap.append(z)
+            fmap_mask.append(mask)
 
         stride_t = self.conv_post.conv.stride[0]
         kernel_t = self.conv_post.conv.kernel_size[0]
@@ -170,10 +172,9 @@ class DiscriminatorSTFT(nn.Module):
         z = z * mask[:, None, :, None]
         z = self.conv_post(z)
 
-        # TODO: use checkpoint
-        mask_out = mask if mask is not None else None
+        z_mask = mask
 
-        return z, fmap, mask_out
+        return z, z_mask, fmap, fmap_mask
 
 
 class MultiScaleSTFTDiscriminator(nn.Module):
@@ -212,10 +213,11 @@ class MultiScaleSTFTDiscriminator(nn.Module):
             fmaps: list of feature maps from each discriminator
             masks: list of propagated masks from each discriminator
         """
-        logits, fmaps, masks = [], [], []
+        logits, logit_masks, fmaps, fmaps_masks = [], [], [], []
         for disc in self.discriminators:
-            logit, fmap, mask_out = disc(x, mask)
+            logit, logit_mask, fmap, fmap_mask = disc(x, mask)
             logits.append(logit)
+            logit_masks.append(logit_mask)
             fmaps.append(fmap)
-            masks.append(mask_out)
-        return logits, fmaps, masks
+            fmaps_masks.append(fmap_mask)
+        return logits, logit_masks, fmaps, fmaps_masks
