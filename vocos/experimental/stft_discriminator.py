@@ -129,7 +129,7 @@ class DiscriminatorSTFT(nn.Module):
         """
         Forward pass through STFT discriminator.
         x: [B, C, T] input waveform
-        mask: optional [B, 1, T] binary mask to indicate valid input frames
+        mask: optional [B, T] binary mask to indicate valid input frames
         Returns:
             logits: final output tensor
             fmap: list of feature maps from each conv layer
@@ -160,7 +160,7 @@ class DiscriminatorSTFT(nn.Module):
             z = z * mask[:, None, :, None]
             z = self.activation(z)
             fmap.append(z)
-            fmap_mask.append(mask)
+            fmap_mask.append(mask[:, None, :, None])
 
         stride_t = self.conv_post.conv.stride[0]
         kernel_t = self.conv_post.conv.kernel_size[0]
